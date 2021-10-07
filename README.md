@@ -4,7 +4,7 @@ This repo is the official implementation for [*Multi-Relation Aware Temporal Int
 
 ## 1.1 The framework of MRATE
 <div align=center>
-<img src="https://user-images.githubusercontent.com" width="400" height="400" alt="framework"/><br/>
+<img src="https://github.com/ShansYu/mrate/blob/main/framework.jpg" width="400" height="400" alt="framework"/><br/>
 <div align=left>
 
 # 2 Prerequisites
