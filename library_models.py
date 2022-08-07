@@ -54,6 +54,7 @@ class JODIE(nn.Module):
         self.user_static_embedding_size = num_users
         self.item_static_embedding_size = num_items
         self.num_neighbor = args.num_neighbor
+        self.num_self_attention_head = 50
 
         print "Initializing user and item embeddings"
         self.initial_user_embedding = nn.Parameter(torch.Tensor(args.embedding_dim))
@@ -70,7 +71,7 @@ class JODIE(nn.Module):
         self.linear_layer2 = nn.Linear(50, 2)
         self.prediction_layer = nn.Linear(self.embedding_dim * 2, self.embedding_dim)
         self.embedding_layer = NormalLinear(1, self.embedding_dim)
-        # attention
+        # multi-head attention
         self.attention_hidden_1  = nn.Linear(self.embedding_dim, self.embedding_dim, bias=False)
         self.attention_hidden_2  = nn.Linear(self.embedding_dim, self.embedding_dim, bias=False)
         self.attention_hidden_3  = nn.Linear(self.embedding_dim, self.embedding_dim, bias=False)
@@ -81,6 +82,11 @@ class JODIE(nn.Module):
         self.attention_weight_com_2 = nn.Linear(2*self.embedding_dim, 1)
         self.attention_weight_com_3 = nn.Linear(2*self.embedding_dim, 1)
         self.attention_p = nn.Linear(2, 1)
+        # self-attention
+        self.query = nn.Linear(self.embedding_dim, self.num_self_attention_head)
+        self.key = nn.Linear(self.embedding_dim, self.num_self_attention_head)
+        self.value = nn.Linear(self.embedding_dim, self.num_self_attention_head)
+        self.fc = nn.Linear(3*self.num_self_attention_head, self.embedding_dim)
         print "*** JODIE initialization complete ***\n\n"
 
     def forward(self, user_embeddings, item_embeddings, user_neighbor_embeddings, item_neighbor_embeddings, timediffs=None, select=None):
@@ -136,6 +142,18 @@ class JODIE(nn.Module):
         com_neighbor_embedding = torch.mean(torch.cat([his_neighbor_head_1, his_neighbor_head_2, his_neighbor_head_3], dim=2), dim=2) # batch_size, dim
         return com_neighbor_embedding
 
+    def self_attention(hidden_his_neighbor, hidden_com_neighbor, hidden_seq_neighbor):
+        h = torch.cat([tf.reshape(hidden_his_neighbor, (-1, 1, self.embedding_dim)), tf.reshape(hidden_com_neighbor, (-1, 1, self.embedding_dim)), tf.reshape(hidden_seq_neighbor, (-1, 1, self.embedding_dim))], dim = 1)
+        q = self.query(h)
+        k = self.key(h)
+        v = self.value(h)
+
+        attention_scores = torch.matmul(q, k.transpose(-1, -2))
+        attention_scores = attention_scores/torch.sqrt(self.num_self_attention_head)
+        attention_prob = nn.Softmax()(attention_scores)
+        context_layer = tf.reshape(torch.matmul(attention_prob, v), [-1, 3*self.num_self_attention_head])
+        out = nn.Softmax()(self.fc(context_layer)) # batch_size, dim
+        return out
 
 
 # INITIALIZE T-BATCH VARIABLES
