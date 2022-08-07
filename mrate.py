@@ -60,7 +60,9 @@ Longer timespans mean more interactions are processed and the training time is r
 Longer timespan leads to less frequent model updates. 
 '''
 timespan = timestamp_sequence[-1] - timestamp_sequence[0]
-tbatch_timespan = timespan / 500 
+tbatch_timespan = timespan / 500
+
+delta_T = timespan/10
 
 # INITIALIZE MODEL AND PARAMETERS
 model = JODIE(args, num_features, num_users, num_items).cuda()
@@ -126,18 +128,10 @@ with trange(args.epochs) as progress_bar1:
                 item_timediff = item_timediffs_sequence[j]
 
                 # CREATE T-N-BATCHES: ADD INTERACTION J TO THE CORRECT T-BATCH
-                tbatchid_his_neighbor_user = -1
-                tbatchid_his_neighbor_item = -1
-                if userid not in lib.his_user2item:
-                    tbatchid_his_neighbor_user = -1
-                else:
-                    tbatchid_his_neighbor_user = max([lib.tbatchid_item[relation[0]] for relation in lib.his_user2item[userid]])
-                if itemid not in lib.his_item2user:
-                    tbatchid_his_neighbor_item = -1
-                else:
-                    tbatchid_his_neighbor_item = max([lib.tbatchid_user[relation[0]] for relation in lib.his_item2user[itemid]])
+                tbatchid_his_neighbor = max(get_max_neighbor_tbatchid(userid, lib.his_user2item, lib.tbatchid_item), get_max_neighbor_tbatchid(itemid, lib.his_item2user, lib.tbatchid_user))
+                tbatchid_com_neighbor = max(get_max_neighbor_tbatchid(userid, lib.com_user2user, lib.tbatchid_user), get_max_neighbor_tbatchid(itemid, lib.com_item2item, lib.tbatchid_item))
 
-                tbatch_to_insert = max(lib.tbatchid_user[userid], lib.tbatchid_item[itemid], tbatchid_his_neighbor_user, tbatchid_his_neighbor_item) + 1
+                tbatch_to_insert = max(lib.tbatchid_user[userid], lib.tbatchid_item[itemid], tbatchid_his_neighbor, tbatchid_com_neighbor) + 1
                 lib.tbatchid_user[userid] = tbatch_to_insert 
                 lib.tbatchid_item[itemid] = tbatch_to_insert
 
@@ -150,8 +144,14 @@ with trange(args.epochs) as progress_bar1:
                 lib.current_tbatches_previous_item[tbatch_to_insert].append(user_previous_itemid_sequence[j])
 
                 # LOCAL RELATION GRAPH CONSTRUCTION
+                # historical interaction relations
                 lib.his_user2item = get_historical_neighbor(userid, itemid, timestamp, lib.his_user2item)
                 lib.his_item2user = get_historical_neighbor(itemid, userid, timestamp, lib.his_item2user)
+                # common interaction relations
+                T_user_sequence = sorted(his_item2user[itemid], key=lambda x: x[1]) # 格式为 [(id,t,w)]
+                T_item_sequence = sorted(his_user2item[userid], key=lambda x: x[1]) # 格式为 [(id,t,w)]
+                lib.com_user2user = get_common_neighbor(userid, timestamp, delta_T, lib.com_user2user, T_user_sequence)
+                lib.com_item2item = get_common_neighbor(itemid, timestamp, delta_T, lib.com_item2item, T_item_sequence)
 
                 if tbatch_start_time is None:
                     tbatch_start_time = timestamp
@@ -178,14 +178,20 @@ with trange(args.epochs) as progress_bar1:
                             item_embedding_previous = item_embeddings[tbatch_itemids_previous,:]
 
                             # GET NEIGHBOR EMBEDDING INPUT
-                            user_his_neighbor_emb_input, user_his_t_emb_input, user_his_w_emb_input = get_his_neighbor_embeddings(lib.current_tbatches_user[i], lib.his_user2item, item_embeddings, zero_neighbor_embedding, zero_weight_embedding) # n_batch_user, num_neighbor, dim/ n_batch_user, num_neighbor, 1
-                            item_his_neighbor_emb_input, item_his_t_emb_input, item_his_w_emb_input = get_his_neighbor_embeddings(lib.current_tbatches_item[i], lib.his_item2user, user_embeddings, zero_neighbor_embedding, zero_weight_embedding)
+                            user_his_neighbor_emb_input, user_his_t_emb_input, user_his_w_emb_input = get_relation_neighbor_embeddings(lib.current_tbatches_user[i], lib.his_user2item, item_embeddings, zero_neighbor_embedding, zero_weight_embedding) # n_batch_user, num_neighbor, dim/ n_batch_user, num_neighbor, 1
+                            item_his_neighbor_emb_input, item_his_t_emb_input, item_his_w_emb_input = get_relation_neighbor_embeddings(lib.current_tbatches_item[i], lib.his_item2user, user_embeddings, zero_neighbor_embedding, zero_weight_embedding)
+
+                            user_com_neighbor_emb_input, user_com_t_emb_input, user_com_w_emb_input = get_relation_neighbor_embeddings(lib.current_tbatches_user[i], lib.com_user2user, user_embeddings, zero_neighbor_embedding, zero_weight_embedding) # n_batch_user, num_neighbor, dim/ n_batch_user, num_neighbor, 1
+                            item_com_neighbor_emb_input, item_com_t_emb_input, item_com_w_emb_input = get_relation_neighbor_embeddings(lib.current_tbatches_item[i], lib.com_item2item, item_embeddings, zero_neighbor_embedding, zero_weight_embedding)
 
                             # INTRA RELATION AGGREGATION
                             user_embedding_input = user_embeddings[tbatch_userids,:]
                             item_embedding_input = item_embeddings[tbatch_itemids,:]
                             hidden_user_his_neighbor = model.his_neighbor_attention(user_his_neighbor_emb_input, user_embedding_input, user_his_t_emb_input, user_his_w_emb_input)
                             hidden_item_his_neighbor = model.his_neighbor_attention(item_his_neighbor_emb_input, item_embedding_input, item_his_t_emb_input, item_his_w_emb_input)
+
+                            hidden_user_com_neighbor = model.com_neighbor_attention(user_com_neighbor_emb_input, user_embedding_input, user_com_t_emb_input, user_com_w_emb_input)
+                            hidden_item_com_neighbor = model.com_neighbor_attention(item_com_neighbor_emb_input, item_embedding_input, item_com_t_emb_input, item_com_w_emb_input)
                             # INTER RELATION AGGREGATION
                             user_neighbor_embeddings = hidden_user_his_neighbor
                             item_neighbor_embeddings = hidden_item_his_neighbor

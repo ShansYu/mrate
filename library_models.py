@@ -77,6 +77,9 @@ class JODIE(nn.Module):
         self.attention_weight_his_1 = nn.Linear(2*self.embedding_dim, 1)
         self.attention_weight_his_2 = nn.Linear(2*self.embedding_dim, 1)
         self.attention_weight_his_3 = nn.Linear(2*self.embedding_dim, 1)
+        self.attention_weight_com_1 = nn.Linear(2*self.embedding_dim, 1)
+        self.attention_weight_com_2 = nn.Linear(2*self.embedding_dim, 1)
+        self.attention_weight_com_3 = nn.Linear(2*self.embedding_dim, 1)
         self.attention_p = nn.Linear(2, 1)
         print "*** JODIE initialization complete ***\n\n"
 
@@ -91,10 +94,10 @@ class JODIE(nn.Module):
             user_embedding_output = self.user_rnn(input2, user_embeddings)
             return F.normalize(user_embedding_output)
 
-        elif select == 'project':
-            user_projected_embedding = self.context_convert(user_embeddings, timediffs, features)
-            #user_projected_embedding = torch.cat([input3, item_embeddings], dim=1)
-            return user_projected_embedding
+        # elif select == 'project':
+        #     user_projected_embedding = self.context_convert(user_embeddings, timediffs, features)
+        #     #user_projected_embedding = torch.cat([input3, item_embeddings], dim=1)
+        #     return user_projected_embedding
 
     def context_convert(self, embeddings, timediffs, features):
         new_embeddings = embeddings * (1 + self.embedding_layer(timediffs))
@@ -118,12 +121,20 @@ class JODIE(nn.Module):
         a_reshape = torch.reshape(a, (-1, self.num_neighbor, 1))
         out = torch.reshape(torch.sum(hidden_neighbor * a_reshape, dim=1), (-1, self.embedding_dim, 1)) # bacth_size, dim, 1
         return out
+
     def his_neighbor_attention(self, neighbor_embeddings, target_embeddings, t_tensor, w_tensor):
         his_neighbor_head_1 = self.multi_head_attention(neighbor_embeddings, target_embeddings, t_tensor, w_tensor, self.attention_hidden_1, self.attention_weight_his_1)
         his_neighbor_head_2 = self.multi_head_attention(neighbor_embeddings, target_embeddings, t_tensor, w_tensor, self.attention_hidden_2, self.attention_weight_his_2)
         his_neighbor_head_3 = self.multi_head_attention(neighbor_embeddings, target_embeddings, t_tensor, w_tensor, self.attention_hidden_3, self.attention_weight_his_3)
         his_neighbor_embedding = torch.mean(torch.cat([his_neighbor_head_1, his_neighbor_head_2, his_neighbor_head_3], dim=2), dim=2) # batch_size, dim
         return his_neighbor_embedding
+
+    def com_neighbor_attention(self, neighbor_embeddings, target_embeddings, t_tensor, w_tensor):
+        com_neighbor_head_1 = self.multi_head_attention(neighbor_embeddings, target_embeddings, t_tensor, w_tensor, self.attention_hidden_1, self.attention_weight_com_1)
+        com_neighbor_head_2 = self.multi_head_attention(neighbor_embeddings, target_embeddings, t_tensor, w_tensor, self.attention_hidden_2, self.attention_weight_com_2)
+        com_neighbor_head_3 = self.multi_head_attention(neighbor_embeddings, target_embeddings, t_tensor, w_tensor, self.attention_hidden_3, self.attention_weight_com_3)
+        com_neighbor_embedding = torch.mean(torch.cat([his_neighbor_head_1, his_neighbor_head_2, his_neighbor_head_3], dim=2), dim=2) # batch_size, dim
+        return com_neighbor_embedding
 
 
 
@@ -155,7 +166,7 @@ def reinitialize_tbatches():
 
 def initialize_neighbors_dicts():
     global his_user2item, his_item2user, com_user2user, com_item2item, seq_user2user, seq_item2item
-    global last_his_user2item, last_his_item2user
+    # global last_his_user2item, last_his_item2user
     his_user2item = defaultdict(list)
     his_item2user = defaultdict(list)
     com_user2user = defaultdict(list)
@@ -169,6 +180,11 @@ def initialize_neighbors_dicts():
 
     # T_user_sequence = []
     # T_item_sequence = []
+def get_max_neighbor_tbatchid(nodeid, neighbor_dict, batchid_dict):
+    if nodeid not in neighbor_dict:
+        return -1
+    else:
+        return max([batchid_dict[r[0]] for r in neighbor_dict[nodeid]])
 
 # LOCAL RELATION GRAPH CONSTRUCTION
 def get_historical_neighbor(sorc_id, dest_id, t, his_dict):
@@ -178,13 +194,43 @@ def get_historical_neighbor(sorc_id, dest_id, t, his_dict):
         neighbor_nodes = [relation[0] for relation in his_dict[sorc_id]]
         if dest_id in neighbor_nodes:
             idx = neighbor_nodes.index(dest_id)
-            his_dict[sorc_id][idx][1] = t
-            his_dict[sorc_id][idx][2] += 1
+            his_dict[sorc_id][idx] = (dest_id, t, his_dict[sorc_id][idx][2]+1)
         else:
+            if (len(neighbor_nodes)) >= args.num_neighbor:
+                neighbor_nodes_sort = sorted(his_dict[sorc_id], key=lambda x: x[1], reverse=True)
+                pop_id = neighbor_nodes_sort.pop()
+                his_dict[sorc_id] = neighbor_nodes_sort
             his_dict[sorc_id].append((dest_id, t, 1))
     return his_dict
 
-def get_his_neighbor_embeddings(target_nodes, neighbor_dict, node_embeddings, zero_neighbor_embedding, zero_weight_embedding):
+def get_common_neighbor(sorc_id, current_timestamp, delta_T, com_dict, T_sequence):
+    for i in range(len(T_sequence)-1, -1, -1):
+        each_t = T_sequence[i][1]
+        if current_timestamp-each_t > 0 and current_timestamp-each_t < delta_T:
+            dest_node = T_sequence[i][0]
+            com_dict = get_common_neighbor_each(sorc_id, dest_id, current_timestamp, com_dict)
+            com_dict = get_common_neighbor_each(dest_id, sorc_id, current_timestamp, com_dict)
+        elif current_timestamp-each_t >= delta_T:
+            break
+    return com_dict
+
+def get_common_neighbor_each(sorc_id, dest_id, current_timestamp, com_dict):
+    if sorc_id not in com_dict：
+        com_dict[sorc_id] = [(dest_node, current_timestamp, 1)]
+    else:
+        neighbor_nodes = [r[0] for r in com_dict[sorc_id]]
+        if dest_node in neighbor_nodes:
+            idx = neighbor_nodes.index(dest_node)
+            com_dict[sorc_id][idx] = (dest_node, current_timestamp, com_dict[sorc_id][idx][2]+1)
+        else:
+            if (len(neighbor_nodes)) >= args.num_neighbor:
+                neighbor_nodes_sort = sorted(com_dict[sorc_id], key=lambda x: x[1], reverse=True)
+                pop_id = neighbor_nodes_sort.pop()
+                com_dict[sorc_id] = neighbor_nodes_sort
+            com_dict[sorc_id].append((dest_node, current_timestamp, 1))
+         return com_dict
+
+def get_relation_neighbor_embeddings(target_nodes, neighbor_dict, node_embeddings, zero_neighbor_embedding, zero_weight_embedding):
     for i in range(len(target_nodes)):
         each_node = target_nodes[i]
         if each_node not in neighbor_dict:
@@ -198,9 +244,9 @@ def get_his_neighbor_embeddings(target_nodes, neighbor_dict, node_embeddings, ze
             each_neighbor_emb_cat = torch.cat([torch.reshape(node_embeddings[node_list,:], (1, -1)), tf.reshape(zero_neighbor_embedding, (1,-1)], dim = 1)
             each_t_emb_cat = torch.cat([torch.reshape(t_list, (1, -1)), tf.reshape(zero_weight_embedding, (1,-1)], dim = 1)
             each_w_emb_cat = torch.cat([torch.reshape(w_list, (1, -1)), tf.reshape(zero_weight_embedding, (1,-1)], dim = 1)
-            each_neighbor_emb = torch.reshape(each_neighbor_emb_cat[:,:num_neighbor*args.embedding_dim], (1, num_neighbor, args.embedding_dim))
-            each_t_emb = torch.reshape(each_t_emb_cat[:,:num_neighbor], (1, num_neighbor, 1))
-            each_w_emb = torch.reshape(each_w_emb_cat[:,:num_neighbor], (1, num_neighbor, 1))
+            each_neighbor_emb = torch.reshape(each_neighbor_emb_cat[:,:args.num_neighbor*args.embedding_dim], (1, args.num_neighbor, args.embedding_dim))
+            each_t_emb = torch.reshape(each_t_emb_cat[:,:args.num_neighbor], (1, args.num_neighbor, 1))
+            each_w_emb = torch.reshape(each_w_emb_cat[:,:args.num_neighbor], (1, args.num_neighbor, 1))
         if i == 0:
           his_neighbor_emb = each_neighbor_emb
           his_t_emb = each_t_emb
