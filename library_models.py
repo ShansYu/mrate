@@ -248,14 +248,14 @@ def get_relation_neighbor_embeddings(target_nodes, neighbor_dict, node_embedding
             each_t_emb = torch.reshape(each_t_emb_cat[:,:args.num_neighbor], (1, args.num_neighbor, 1))
             each_w_emb = torch.reshape(each_w_emb_cat[:,:args.num_neighbor], (1, args.num_neighbor, 1))
         if i == 0:
-          his_neighbor_emb = each_neighbor_emb
-          his_t_emb = each_t_emb
-          his_w_emb = each_w_emb
+          relation_neighbor_emb = each_neighbor_emb
+          relation_t_emb = each_t_emb
+          relation_w_emb = each_w_emb
         else:
-          his_neighbor_emb = torch.cat([his_neighbor_emb, each_neighbor_emb], dim = 0)
-          his_t_emb = torch.cat([his_t_emb, each_t_emb], dim = 0)
-          his_w_emb = torch.cat([his_w_emb, each_w_emb], dim = 0)
-    return his_neighbor_emb, his_t_emb, his_w_emb
+          relation_neighbor_emb = torch.cat([relation_neighbor_emb, each_neighbor_emb], dim = 0)
+          relation_t_emb = torch.cat([relation_t_emb, each_t_emb], dim = 0)
+          relation_w_emb = torch.cat([relation_w_emb, each_w_emb], dim = 0)
+    return relation_neighbor_emb, relation_t_emb, relation_w_emb
 
 # CALCULATE LOSS FOR THE PREDICTED USER STATE
 def calculate_state_prediction_loss(model, tbatch_interactionids, user_embeddings_time_series, y_true, loss_function):
