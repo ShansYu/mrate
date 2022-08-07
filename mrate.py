@@ -207,8 +207,6 @@ with trange(args.epochs) as progress_bar1:
                             loss += MSELoss(predicted_item_embedding, item_embedding_input.detach())
 
                             # UPDATE DYNAMIC EMBEDDINGS AFTER INTERACTION
-                            forward(self, user_embeddings, item_embeddings, user_neighbor_embeddings, item_neighbor_embeddings, timediffs=None, select=None):
-
                             user_embedding_output = model.forward(user_embedding_input, item_embedding_input, user_neighbor_embeddings, item_neighbor_embeddings, timediffs=user_timediffs_tensor, select='user_update')
                             item_embedding_output = model.forward(user_embedding_input, item_embedding_input, user_neighbor_embeddings, item_neighbor_embeddings, timediffs=item_timediffs_tensor, select='item_update')
 
