@@ -152,7 +152,7 @@ class JODIE(nn.Module):
         seq_neighbor_embedding = torch.mean(torch.cat([seq_neighbor_head_1, seq_neighbor_head_2, seq_neighbor_head_3], dim=2), dim=2) # batch_size, dim
         return seq_neighbor_embedding
 
-    def self_attention(hidden_his_neighbor, hidden_com_neighbor, hidden_seq_neighbor):
+    def self_attention(self, hidden_his_neighbor, hidden_com_neighbor, hidden_seq_neighbor):
         h = torch.cat([tf.reshape(hidden_his_neighbor, (-1, 1, self.embedding_dim)), tf.reshape(hidden_com_neighbor, (-1, 1, self.embedding_dim)), tf.reshape(hidden_seq_neighbor, (-1, 1, self.embedding_dim))], dim = 1)
         q = self.query(h)
         k = self.key(h)
