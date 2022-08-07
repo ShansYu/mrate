@@ -184,8 +184,8 @@ with trange(args.epochs) as progress_bar1:
                             # INTRA RELATION AGGREGATION
                             user_embedding_input = user_embeddings[tbatch_userids,:]
                             item_embedding_input = item_embeddings[tbatch_itemids,:]
-                            hidden_user_his_neighbor = model.his_neighbor_attention(user_his_neighbor_emb_input, user_embedding_input, user_his_t_emb_input, user_his_w_emb_input):
-                            hidden_item_his_neighbor = model.his_neighbor_attention(item_his_neighbor_emb_input, item_embedding_input, item_his_t_emb_input, item_his_w_emb_input):
+                            hidden_user_his_neighbor = model.his_neighbor_attention(user_his_neighbor_emb_input, user_embedding_input, user_his_t_emb_input, user_his_w_emb_input)
+                            hidden_item_his_neighbor = model.his_neighbor_attention(item_his_neighbor_emb_input, item_embedding_input, item_his_t_emb_input, item_his_w_emb_input)
                             # INTER RELATION AGGREGATION
                             user_neighbor_embeddings = hidden_user_his_neighbor
                             item_neighbor_embeddings = hidden_item_his_neighbor
