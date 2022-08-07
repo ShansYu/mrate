@@ -184,17 +184,24 @@ with trange(args.epochs) as progress_bar1:
                             user_com_neighbor_emb_input, user_com_t_emb_input, user_com_w_emb_input = get_relation_neighbor_embeddings(lib.current_tbatches_user[i], lib.com_user2user, user_embeddings, zero_neighbor_embedding, zero_weight_embedding) # n_batch_user, num_neighbor, dim/ n_batch_user, num_neighbor, 1
                             item_com_neighbor_emb_input, item_com_t_emb_input, item_com_w_emb_input = get_relation_neighbor_embeddings(lib.current_tbatches_item[i], lib.com_item2item, item_embeddings, zero_neighbor_embedding, zero_weight_embedding)
 
-                            # INTRA RELATION AGGREGATION
                             user_embedding_input = user_embeddings[tbatch_userids,:]
                             item_embedding_input = item_embeddings[tbatch_itemids,:]
+                            user_seq_neighbor_emb_input, user_seq_t_emb_input, user_seq_w_emb_input = get_seq_neighbor_embeddings(lib.current_tbatches_user[i], user_his_neighbor_emb_input, user_embedding_input, zero_neighbor_embedding, zero_weight_embedding) # n_batch_user, num_neighbor, dim/ n_batch_user, num_neighbor, 1
+                            item_seq_neighbor_emb_input, item_seq_t_emb_input, item_seq_w_emb_input = get_seq_neighbor_embeddings(lib.current_tbatches_item[i], item_his_neighbor_emb_input, item_embedding_input, zero_neighbor_embedding, zero_weight_embedding)
+
+                            # INTRA RELATION AGGREGATION
                             hidden_user_his_neighbor = model.his_neighbor_attention(user_his_neighbor_emb_input, user_embedding_input, user_his_t_emb_input, user_his_w_emb_input)
                             hidden_item_his_neighbor = model.his_neighbor_attention(item_his_neighbor_emb_input, item_embedding_input, item_his_t_emb_input, item_his_w_emb_input)
 
                             hidden_user_com_neighbor = model.com_neighbor_attention(user_com_neighbor_emb_input, user_embedding_input, user_com_t_emb_input, user_com_w_emb_input)
                             hidden_item_com_neighbor = model.com_neighbor_attention(item_com_neighbor_emb_input, item_embedding_input, item_com_t_emb_input, item_com_w_emb_input)
+
+                            hidden_user_seq_neighbor = model.seq_neighbor_attention(user_seq_neighbor_emb_input, user_embedding_input, user_seq_t_emb_input, user_seq_w_emb_input)
+                            hidden_item_seq_neighbor = model.seq_neighbor_attention(item_seq_neighbor_emb_input, item_embedding_input, item_seq_t_emb_input, item_seq_w_emb_input)
+
                             # INTER RELATION AGGREGATION
-                            user_neighbor_embeddings = hidden_user_his_neighbor
-                            item_neighbor_embeddings = hidden_item_his_neighbor
+                            user_neighbor_embeddings = model.self_attention(hidden_user_his_neighbor, hidden_user_com_neighbor, hidden_user_seq_neighbor)
+                            item_neighbor_embeddings = model.self_attention(hidden_item_his_neighbor, hidden_item_com_neighbor, hidden_item_seq_neighbor)
 
 
                             # user_projected_embedding = model.forward(user_embedding_input, item_embedding_previous, timediffs=user_timediffs_tensor, features=feature_tensor, select='project')

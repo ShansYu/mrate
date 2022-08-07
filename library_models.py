@@ -81,6 +81,9 @@ class JODIE(nn.Module):
         self.attention_weight_com_1 = nn.Linear(2*self.embedding_dim, 1)
         self.attention_weight_com_2 = nn.Linear(2*self.embedding_dim, 1)
         self.attention_weight_com_3 = nn.Linear(2*self.embedding_dim, 1)
+        self.attention_weight_seq_1 = nn.Linear(2*self.embedding_dim, 1)
+        self.attention_weight_seq_2 = nn.Linear(2*self.embedding_dim, 1)
+        self.attention_weight_seq_3 = nn.Linear(2*self.embedding_dim, 1)
         self.attention_p = nn.Linear(2, 1)
         # self-attention
         self.query = nn.Linear(self.embedding_dim, self.num_self_attention_head)
@@ -141,6 +144,13 @@ class JODIE(nn.Module):
         com_neighbor_head_3 = self.multi_head_attention(neighbor_embeddings, target_embeddings, t_tensor, w_tensor, self.attention_hidden_3, self.attention_weight_com_3)
         com_neighbor_embedding = torch.mean(torch.cat([his_neighbor_head_1, his_neighbor_head_2, his_neighbor_head_3], dim=2), dim=2) # batch_size, dim
         return com_neighbor_embedding
+
+    def seq_neighbor_attention(self, neighbor_embeddings, target_embeddings, t_tensor, w_tensor):
+        seq_neighbor_head_1 = self.multi_head_attention(neighbor_embeddings, target_embeddings, t_tensor, w_tensor, self.attention_hidden_1, self.attention_weight_seq_1)
+        seq_neighbor_head_2 = self.multi_head_attention(neighbor_embeddings, target_embeddings, t_tensor, w_tensor, self.attention_hidden_2, self.attention_weight_seq_2)
+        seq_neighbor_head_3 = self.multi_head_attention(neighbor_embeddings, target_embeddings, t_tensor, w_tensor, self.attention_hidden_3, self.attention_weight_seq_3)
+        seq_neighbor_embedding = torch.mean(torch.cat([seq_neighbor_head_1, seq_neighbor_head_2, seq_neighbor_head_3], dim=2), dim=2) # batch_size, dim
+        return seq_neighbor_embedding
 
     def self_attention(hidden_his_neighbor, hidden_com_neighbor, hidden_seq_neighbor):
         h = torch.cat([tf.reshape(hidden_his_neighbor, (-1, 1, self.embedding_dim)), tf.reshape(hidden_com_neighbor, (-1, 1, self.embedding_dim)), tf.reshape(hidden_seq_neighbor, (-1, 1, self.embedding_dim))], dim = 1)
@@ -265,6 +275,35 @@ def get_relation_neighbor_embeddings(target_nodes, neighbor_dict, node_embedding
             each_neighbor_emb = torch.reshape(each_neighbor_emb_cat[:,:args.num_neighbor*args.embedding_dim], (1, args.num_neighbor, args.embedding_dim))
             each_t_emb = torch.reshape(each_t_emb_cat[:,:args.num_neighbor], (1, args.num_neighbor, 1))
             each_w_emb = torch.reshape(each_w_emb_cat[:,:args.num_neighbor], (1, args.num_neighbor, 1))
+        if i == 0:
+          relation_neighbor_emb = each_neighbor_emb
+          relation_t_emb = each_t_emb
+          relation_w_emb = each_w_emb
+        else:
+          relation_neighbor_emb = torch.cat([relation_neighbor_emb, each_neighbor_emb], dim = 0)
+          relation_t_emb = torch.cat([relation_t_emb, each_t_emb], dim = 0)
+          relation_w_emb = torch.cat([relation_w_emb, each_w_emb], dim = 0)
+    return relation_neighbor_emb, relation_t_emb, relation_w_emb
+
+def get_seq_neighbor_embeddings(target_nodes, his_neighbor_emb_input, node_embeddings_input, zero_neighbor_embedding, zero_weight_embedding):
+    node_seq_embedding = torch.mean(his_neighbor_emb_input, dim=1) # batch_size, dim
+    zero = torch.zeros([list(node_seq_embedding.size())[0], 1], dtype=torch.long))
+    for i in range(len(target_nodes)):
+        each_node_embedding = node_seq_embedding[i]
+        each_node_embedding.expand(len(target_nodes), args.embedding_dim)
+        cos = F.CosineSimilarity(each_node_embedding, node_seq_embedding, dim=1)
+        cos_reshape = torch.reshape(cos, (-1,1))
+        mask = torch.where(cos_reshape > 0.5, cos_reshape, zero)
+        mask_index = tf.reshape(torch.nonzero(mask), (1,-1))
+        each_node_neighbor_embedding = node_embeddings_input[mask_index, :] #n,dim
+        each_w = cos_reshape[mask_index, :] #n,1
+
+        each_neighbor_emb_cat = torch.cat([torch.reshape(each_node_neighbor_embedding, (1, -1)), tf.reshape(zero_neighbor_embedding, (1,-1)], dim = 1)
+        each_t_emb_cat = torch.cat([torch.reshape(each_w, (1, -1)), tf.reshape(zero_weight_embedding, (1,-1)], dim = 1)
+        each_w_emb_cat = torch.cat([torch.reshape(each_w, (1, -1)), tf.reshape(zero_weight_embedding, (1,-1)], dim = 1)
+        each_neighbor_emb = torch.reshape(each_neighbor_emb_cat[:,:args.num_neighbor*args.embedding_dim], (1, args.num_neighbor, args.embedding_dim))
+        each_t_emb = torch.reshape(each_t_emb_cat[:,:args.num_neighbor], (1, args.num_neighbor, 1))
+        each_w_emb = torch.reshape(each_w_emb_cat[:,:args.num_neighbor], (1, args.num_neighbor, 1))
         if i == 0:
           relation_neighbor_emb = each_neighbor_emb
           relation_t_emb = each_t_emb
