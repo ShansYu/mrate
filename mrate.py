@@ -148,8 +148,8 @@ with trange(args.epochs) as progress_bar1:
                 lib.his_user2item = get_historical_neighbor(userid, itemid, timestamp, lib.his_user2item)
                 lib.his_item2user = get_historical_neighbor(itemid, userid, timestamp, lib.his_item2user)
                 # common interaction relations
-                T_user_sequence = sorted(his_item2user[itemid], key=lambda x: x[1]) # 格式为 [(id,t,w)]
-                T_item_sequence = sorted(his_user2item[userid], key=lambda x: x[1]) # 格式为 [(id,t,w)]
+                T_user_sequence = sorted(lib.his_item2user[itemid], key=lambda x: x[1]) # 格式为 [(id,t,w)]
+                T_item_sequence = sorted(lib.his_user2item[userid], key=lambda x: x[1]) # 格式为 [(id,t,w)]
                 lib.com_user2user = get_common_neighbor(userid, timestamp, delta_T, lib.com_user2user, T_user_sequence)
                 lib.com_item2item = get_common_neighbor(itemid, timestamp, delta_T, lib.com_item2item, T_item_sequence)
 
