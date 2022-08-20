@@ -125,7 +125,8 @@ class JODIE(nn.Module):
         hidden_neighbor = hidden_layer(neighbor_embeddings)
         hidden_target = hidden_layer(target_embeddings)
         p = nn.Sigmoid()(self.attention_p(torch.cat([t_tensor, w_tensor], dim=2)))   # input batch_size,num_neighbor,2 / output batch_size,num_neighbor,1
-        c = nn.LeakyReLU()(weight_layer(torch.cat([target_embeddings.repeat(1,num_neighbors,1), neighbor_embeddings], dim=2) * p)) # batch_size,num_neighbor,2dim * batch_size,num_neighbor,1
+        tmp = torch.resahpe(hidden_target, (-1, 1, self.embedding_dim))
+        c = nn.LeakyReLU()(weight_layer(torch.cat([tmp.repeat(1,self.num_neighbor,1), neighbor_embeddings], dim=2) * p)) # batch_size,num_neighbor,2dim * batch_size,num_neighbor,1
         a = nn.Softmax()(torch.reshape(c, (-1, self.num_neighbor)))
         a_reshape = torch.reshape(a, (-1, self.num_neighbor, 1))
         out = torch.reshape(torch.sum(hidden_neighbor * a_reshape, dim=1), (-1, self.embedding_dim, 1)) # bacth_size, dim, 1
