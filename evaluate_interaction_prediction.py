@@ -22,6 +22,7 @@ parser.add_argument('--epoch', default=50, type=int, help='Epoch id to load')
 parser.add_argument('--embedding_dim', default=128, type=int, help='Number of dimensions')
 parser.add_argument('--train_proportion', default=0.8, type=float, help='Proportion of training interactions')
 parser.add_argument('--state_change', default=True, type=bool, help='True if training with state change of users in addition to the next interaction prediction. False otherwise. By default, set to True. MUST BE THE SAME AS THE ONE USED IN TRAINING.') 
+parser.add_argument('--num_neighbor', default=5, type=int, help='Number of neighbors')
 args = parser.parse_args()
 args.datapath = "data/%s.csv" % args.network
 if args.train_proportion > 0.8:
@@ -74,12 +75,16 @@ At the end of each timespan, the model is updated as well. So, longer timespan m
 '''
 timespan = timestamp_sequence[-1] - timestamp_sequence[0]
 tbatch_timespan = timespan / 500 
+delta_T = timespan/10
 
 # INITIALIZE MODEL PARAMETERS
 model = JODIE(args, num_features, num_users, num_items).cuda()
 weight = torch.Tensor([1,true_labels_ratio]).cuda()
 crossEntropyLoss = nn.CrossEntropyLoss(weight=weight)
 MSELoss = nn.MSELoss()
+
+zero_neighbor_embedding = nn.Parameter(torch.zeros([1, num_neighbor, args.embedding_dim], dtype=torch.float))
+zero_weight_embedding = nn.Parameter(torch.zeros([1, num_neighbor, 1], dtype=torch.float))
 
 # INITIALIZE MODEL
 learning_rate = 1e-3
@@ -137,6 +142,16 @@ with trange(train_end_idx, test_end_idx) as progress_bar:
             tbatch_start_time = timestamp
         itemid_previous = user_previous_itemid_sequence[j]
 
+        # LOCAL RELATION GRAPH CONSTRUCTION
+        # historical interaction relations
+        lib.his_user2item = get_historical_neighbor(userid, itemid, timestamp, lib.his_user2item, args)
+        lib.his_item2user = get_historical_neighbor(itemid, userid, timestamp, lib.his_item2user, args)
+        # common interaction relations
+        T_user_sequence = sorted(lib.his_item2user[itemid], key=lambda x: x[1]) # 格式为 [(id,t,w)]
+        T_item_sequence = sorted(lib.his_user2item[userid], key=lambda x: x[1]) # 格式为 [(id,t,w)]
+        lib.com_user2user = get_common_neighbor(userid, itemid, timestamp, delta_T, lib.com_user2user, T_user_sequence, args)
+        lib.com_item2item = get_common_neighbor(itemid, itemid, timestamp, delta_T, lib.com_item2item, T_item_sequence, args)
+
         # LOAD USER AND ITEM EMBEDDING
         user_embedding_input = user_embeddings[torch.cuda.LongTensor([userid])]
         user_embedding_static_input = user_embeddings_static[torch.cuda.LongTensor([userid])]
@@ -147,18 +162,47 @@ with trange(train_end_idx, test_end_idx) as progress_bar:
         item_timediffs_tensor = Variable(torch.Tensor([item_timediff]).cuda()).unsqueeze(0)
         item_embedding_previous = item_embeddings[torch.cuda.LongTensor([itemid_previous])]
 
+        # GET NEIGHBOR EMBEDDING INPUT
+        user_his_neighbor_emb_input, user_his_t_emb_input, user_his_w_emb_input = get_relation_neighbor_embeddings([userid], lib.his_user2item, item_embeddings, zero_neighbor_embedding, zero_weight_embedding, args) # n_batch_user, num_neighbor, dim/ n_batch_user, num_neighbor, 1
+        item_his_neighbor_emb_input, item_his_t_emb_input, item_his_w_emb_input = get_relation_neighbor_embeddings([itemid], lib.his_item2user, user_embeddings, zero_neighbor_embedding, zero_weight_embedding, args)
+
+        user_com_neighbor_emb_input, user_com_t_emb_input, user_com_w_emb_input = get_relation_neighbor_embeddings([userid], lib.com_user2user, user_embeddings, zero_neighbor_embedding, zero_weight_embedding, args) # n_batch_user, num_neighbor, dim/ n_batch_user, num_neighbor, 1
+        item_com_neighbor_emb_input, item_com_t_emb_input, item_com_w_emb_input = get_relation_neighbor_embeddings([itemid], lib.com_item2item, item_embeddings, zero_neighbor_embedding, zero_weight_embedding, args)
+
+        # user_embedding_input = user_embeddings[tbatch_userids,:]
+        # item_embedding_input = item_embeddings[tbatch_itemids,:]
+        user_seq_neighbor_emb_input, user_seq_t_emb_input, user_seq_w_emb_input = get_seq_neighbor_embeddings([userid], user_his_neighbor_emb_input, user_embedding_input, zero_neighbor_embedding, zero_weight_embedding, args) # n_batch_user, num_neighbor, dim/ n_batch_user, num_neighbor, 1
+        item_seq_neighbor_emb_input, item_seq_t_emb_input, item_seq_w_emb_input = get_seq_neighbor_embeddings([itemid], item_his_neighbor_emb_input, item_embedding_input, zero_neighbor_embedding, zero_weight_embedding, args)
+
+        # INTRA RELATION AGGREGATION
+        hidden_user_his_neighbor = model.his_neighbor_attention(user_his_neighbor_emb_input, user_embedding_input, user_his_t_emb_input, user_his_w_emb_input)
+        hidden_item_his_neighbor = model.his_neighbor_attention(item_his_neighbor_emb_input, item_embedding_input, item_his_t_emb_input, item_his_w_emb_input)
+
+        hidden_user_com_neighbor = model.com_neighbor_attention(user_com_neighbor_emb_input, user_embedding_input, user_com_t_emb_input, user_com_w_emb_input)
+        hidden_item_com_neighbor = model.com_neighbor_attention(item_com_neighbor_emb_input, item_embedding_input, item_com_t_emb_input, item_com_w_emb_input)
+
+        hidden_user_seq_neighbor = model.seq_neighbor_attention(user_seq_neighbor_emb_input, user_embedding_input, user_seq_t_emb_input, user_seq_w_emb_input)
+        hidden_item_seq_neighbor = model.seq_neighbor_attention(item_seq_neighbor_emb_input, item_embedding_input, item_seq_t_emb_input, item_seq_w_emb_input)
+
+        # INTER RELATION AGGREGATION
+        user_neighbor_embeddings = model.self_attention(hidden_user_his_neighbor, hidden_user_com_neighbor, hidden_user_seq_neighbor)
+        item_neighbor_embeddings = model.self_attention(hidden_item_his_neighbor, hidden_item_com_neighbor, hidden_item_seq_neighbor)
+
+
         # PROJECT USER EMBEDDING
-        user_projected_embedding = model.forward(user_embedding_input, item_embedding_previous, timediffs=user_timediffs_tensor, features=feature_tensor, select='project')
-        user_item_embedding = torch.cat([user_projected_embedding, item_embedding_previous, item_embeddings_static[torch.cuda.LongTensor([itemid_previous])], user_embedding_static_input], dim=1)
+        # user_projected_embedding = model.forward(user_embedding_input, item_embedding_previous, timediffs=user_timediffs_tensor, features=feature_tensor, select='project')
+        # user_item_embedding = torch.cat([user_projected_embedding, item_embedding_previous, item_embeddings_static[torch.cuda.LongTensor([itemid_previous])], user_embedding_static_input], dim=1)
 
         # PREDICT ITEM EMBEDDING
-        predicted_item_embedding = model.predict_item_embedding(user_item_embedding)
+        # predicted_item_embedding = model.predict_item_embedding(user_item_embedding)
+        predicted_item_embedding = model.predict_item_embedding(user_embedding_input, user_neighbor_embeddings)
 
         # CALCULATE PREDICTION LOSS
-        loss += MSELoss(predicted_item_embedding, torch.cat([item_embedding_input, item_embedding_static_input], dim=1).detach())
+        # loss += MSELoss(predicted_item_embedding, torch.cat([item_embedding_input, item_embedding_static_input], dim=1).detach())
+        loss += MSELoss(predicted_item_embedding, item_embedding_input.detach())
         
         # CALCULATE DISTANCE OF PREDICTED ITEM EMBEDDING TO ALL ITEMS 
-        euclidean_distances = nn.PairwiseDistance()(predicted_item_embedding.repeat(num_items, 1), torch.cat([item_embeddings, item_embeddings_static], dim=1)).squeeze(-1) 
+        euclidean_distances = nn.PairwiseDistance()(predicted_item_embedding.repeat(num_items, 1), item_embeddings).squeeze(-1)
         
         # CALCULATE RANK OF THE TRUE ITEM AMONG ALL ITEMS
         true_item_distance = euclidean_distances[itemid]
@@ -171,8 +215,8 @@ with trange(train_end_idx, test_end_idx) as progress_bar:
             test_ranks.append(true_item_rank)
 
         # UPDATE USER AND ITEM EMBEDDING
-        user_embedding_output = model.forward(user_embedding_input, item_embedding_input, timediffs=user_timediffs_tensor, features=feature_tensor, select='user_update') 
-        item_embedding_output = model.forward(user_embedding_input, item_embedding_input, timediffs=item_timediffs_tensor, features=feature_tensor, select='item_update') 
+        user_embedding_output = model.forward(user_embedding_input, item_embedding_input, user_neighbor_embeddings, item_neighbor_embeddings, timediffs=user_timediffs_tensor, select='user_update')
+        item_embedding_output = model.forward(user_embedding_input, item_embedding_input, user_neighbor_embeddings, item_neighbor_embeddings, timediffs=item_timediffs_tensor, select='item_update')
 
         # SAVE EMBEDDINGS
         item_embeddings[itemid,:] = item_embedding_output.squeeze(0) 
@@ -185,8 +229,8 @@ with trange(train_end_idx, test_end_idx) as progress_bar:
         loss += MSELoss(user_embedding_output, user_embedding_input.detach())
 
         # CALCULATE STATE CHANGE LOSS
-        if args.state_change:
-            loss += calculate_state_prediction_loss(model, [j], user_embeddings_timeseries, y_true, crossEntropyLoss) 
+        # if args.state_change:
+        #     loss += calculate_state_prediction_loss(model, [j], user_embeddings_timeseries, y_true, crossEntropyLoss) 
 
         # UPDATE THE MODEL IN REAL-TIME USING ERRORS MADE IN THE PAST PREDICTION
         if timestamp - tbatch_start_time > tbatch_timespan:

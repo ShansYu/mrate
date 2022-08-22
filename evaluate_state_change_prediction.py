@@ -175,8 +175,8 @@ with trange(train_end_idx, test_end_idx) as progress_bar:
         loss += MSELoss(user_embedding_output, user_embedding_input.detach())
 
         # CALCULATE STATE CHANGE LOSS
-        if args.state_change:
-            loss += calculate_state_prediction_loss(model, [j], user_embeddings_timeseries, y_true, crossEntropyLoss) 
+        # if args.state_change:
+        #     loss += calculate_state_prediction_loss(model, [j], user_embeddings_timeseries, y_true, crossEntropyLoss) 
 
         # UPDATE THE MODEL IN REAL-TIME USING ERRORS MADE IN THE PAST PREDICTION
         if timestamp - tbatch_start_time > tbatch_timespan:

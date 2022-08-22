@@ -32,7 +32,7 @@ if args.train_proportion > 0.8:
 if args.gpu == -1:
     args.gpu = select_free_gpu()
 os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
-os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu
+os.environ["CUDA_VISIBLE_DEVICES"] = str(args.gpu)
 
 # LOAD DATA
 [user2id, user_sequence_id, user_timediffs_sequence, user_previous_itemid_sequence,
@@ -44,7 +44,7 @@ num_items = len(item2id) + 1 # one extra item for "none-of-these"
 num_features = len(feature_sequence[0])
 num_neighbor = args.num_neighbor
 true_labels_ratio = len(y_true)/(1.0+sum(y_true)) # +1 in denominator in case there are no state change labels, which will throw an error. 
-print "*** Network statistics:\n  %d users\n  %d items\n  %d interactions\n  %d/%d true labels ***\n\n" % (num_users, num_items, num_interactions, sum(y_true), len(y_true))
+print ("*** Network statistics:\n  %d users\n  %d items\n  %d interactions\n  %d/%d true labels ***\n\n" % (num_users, num_items, num_interactions, sum(y_true), len(y_true)))
 
 # SET TRAINING, VALIDATION, TESTING, and TBATCH BOUNDARIES
 train_end_idx = validation_start_idx = int(num_interactions * args.train_proportion) 
@@ -73,8 +73,10 @@ MSELoss = nn.MSELoss()
 # INITIALIZE EMBEDDING
 initial_user_embedding = nn.Parameter(F.normalize(torch.rand(args.embedding_dim).cuda(), dim=0)) # the initial user and item embeddings are learned during training as well
 initial_item_embedding = nn.Parameter(F.normalize(torch.rand(args.embedding_dim).cuda(), dim=0))
-zero_neighbor_embedding = nn.Parameter(torch.zeros([1, num_neighbor, args.embedding_dim], dtype=torch.long))
-zero_weight_embedding = nn.Parameter(torch.zeros([1, num_neighbor, 1], dtype=torch.long))
+# zero_neighbor_embedding = nn.Parameter(torch.zeros([1, num_neighbor, args.embedding_dim], dtype=torch.long))
+# zero_weight_embedding = nn.Parameter(torch.zeros([1, num_neighbor, 1], dtype=torch.long))
+zero_neighbor_embedding = nn.Parameter(torch.zeros([1, num_neighbor, args.embedding_dim], dtype=torch.float))
+zero_weight_embedding = nn.Parameter(torch.zeros([1, num_neighbor, 1], dtype=torch.float))
 # initial_item_neighbor_embedding = nn.Parameter(torch.zeros(args.embedding_dim, dtype=torch.long))
 
 model.initial_user_embedding = initial_user_embedding
@@ -95,7 +97,7 @@ optimizer = optim.Adam(model.parameters(), lr=learning_rate, weight_decay=1e-5)
 '''
 THE MODEL IS TRAINED FOR SEVERAL EPOCHS. IN EACH EPOCH, JODIES USES THE TRAINING SET OF INTERACTIONS TO UPDATE ITS PARAMETERS.
 '''
-print "*** Training the JODIE model for %d epochs ***" % args.epochs
+print ("*** Training the JODIE model for %d epochs ***" % args.epochs)
 with trange(args.epochs) as progress_bar1:
     for ep in progress_bar1:
         progress_bar1.set_description('Epoch %d of %d' % (ep, args.epochs))
@@ -145,13 +147,13 @@ with trange(args.epochs) as progress_bar1:
 
                 # LOCAL RELATION GRAPH CONSTRUCTION
                 # historical interaction relations
-                lib.his_user2item = get_historical_neighbor(userid, itemid, timestamp, lib.his_user2item)
-                lib.his_item2user = get_historical_neighbor(itemid, userid, timestamp, lib.his_item2user)
+                lib.his_user2item = get_historical_neighbor(userid, itemid, timestamp, lib.his_user2item, args)
+                lib.his_item2user = get_historical_neighbor(itemid, userid, timestamp, lib.his_item2user, args)
                 # common interaction relations
                 T_user_sequence = sorted(lib.his_item2user[itemid], key=lambda x: x[1]) # 格式为 [(id,t,w)]
                 T_item_sequence = sorted(lib.his_user2item[userid], key=lambda x: x[1]) # 格式为 [(id,t,w)]
-                lib.com_user2user = get_common_neighbor(userid, timestamp, delta_T, lib.com_user2user, T_user_sequence)
-                lib.com_item2item = get_common_neighbor(itemid, timestamp, delta_T, lib.com_item2item, T_item_sequence)
+                lib.com_user2user = get_common_neighbor(userid, itemid, timestamp, delta_T, lib.com_user2user, T_user_sequence, args)
+                lib.com_item2item = get_common_neighbor(itemid, itemid, timestamp, delta_T, lib.com_item2item, T_item_sequence, args)
 
                 if tbatch_start_time is None:
                     tbatch_start_time = timestamp
@@ -178,16 +180,16 @@ with trange(args.epochs) as progress_bar1:
                             item_embedding_previous = item_embeddings[tbatch_itemids_previous,:]
 
                             # GET NEIGHBOR EMBEDDING INPUT
-                            user_his_neighbor_emb_input, user_his_t_emb_input, user_his_w_emb_input = get_relation_neighbor_embeddings(lib.current_tbatches_user[i], lib.his_user2item, item_embeddings, zero_neighbor_embedding, zero_weight_embedding) # n_batch_user, num_neighbor, dim/ n_batch_user, num_neighbor, 1
-                            item_his_neighbor_emb_input, item_his_t_emb_input, item_his_w_emb_input = get_relation_neighbor_embeddings(lib.current_tbatches_item[i], lib.his_item2user, user_embeddings, zero_neighbor_embedding, zero_weight_embedding)
+                            user_his_neighbor_emb_input, user_his_t_emb_input, user_his_w_emb_input = get_relation_neighbor_embeddings(lib.current_tbatches_user[i], lib.his_user2item, item_embeddings, zero_neighbor_embedding, zero_weight_embedding, args) # n_batch_user, num_neighbor, dim/ n_batch_user, num_neighbor, 1
+                            item_his_neighbor_emb_input, item_his_t_emb_input, item_his_w_emb_input = get_relation_neighbor_embeddings(lib.current_tbatches_item[i], lib.his_item2user, user_embeddings, zero_neighbor_embedding, zero_weight_embedding, args)
 
-                            user_com_neighbor_emb_input, user_com_t_emb_input, user_com_w_emb_input = get_relation_neighbor_embeddings(lib.current_tbatches_user[i], lib.com_user2user, user_embeddings, zero_neighbor_embedding, zero_weight_embedding) # n_batch_user, num_neighbor, dim/ n_batch_user, num_neighbor, 1
-                            item_com_neighbor_emb_input, item_com_t_emb_input, item_com_w_emb_input = get_relation_neighbor_embeddings(lib.current_tbatches_item[i], lib.com_item2item, item_embeddings, zero_neighbor_embedding, zero_weight_embedding)
+                            user_com_neighbor_emb_input, user_com_t_emb_input, user_com_w_emb_input = get_relation_neighbor_embeddings(lib.current_tbatches_user[i], lib.com_user2user, user_embeddings, zero_neighbor_embedding, zero_weight_embedding, args) # n_batch_user, num_neighbor, dim/ n_batch_user, num_neighbor, 1
+                            item_com_neighbor_emb_input, item_com_t_emb_input, item_com_w_emb_input = get_relation_neighbor_embeddings(lib.current_tbatches_item[i], lib.com_item2item, item_embeddings, zero_neighbor_embedding, zero_weight_embedding, args)
 
                             user_embedding_input = user_embeddings[tbatch_userids,:]
                             item_embedding_input = item_embeddings[tbatch_itemids,:]
-                            user_seq_neighbor_emb_input, user_seq_t_emb_input, user_seq_w_emb_input = get_seq_neighbor_embeddings(lib.current_tbatches_user[i], user_his_neighbor_emb_input, user_embedding_input, zero_neighbor_embedding, zero_weight_embedding) # n_batch_user, num_neighbor, dim/ n_batch_user, num_neighbor, 1
-                            item_seq_neighbor_emb_input, item_seq_t_emb_input, item_seq_w_emb_input = get_seq_neighbor_embeddings(lib.current_tbatches_item[i], item_his_neighbor_emb_input, item_embedding_input, zero_neighbor_embedding, zero_weight_embedding)
+                            user_seq_neighbor_emb_input, user_seq_t_emb_input, user_seq_w_emb_input = get_seq_neighbor_embeddings(lib.current_tbatches_user[i], user_his_neighbor_emb_input, user_embedding_input, zero_neighbor_embedding, zero_weight_embedding, args) # n_batch_user, num_neighbor, dim/ n_batch_user, num_neighbor, 1
+                            item_seq_neighbor_emb_input, item_seq_t_emb_input, item_seq_w_emb_input = get_seq_neighbor_embeddings(lib.current_tbatches_item[i], item_his_neighbor_emb_input, item_embedding_input, zero_neighbor_embedding, zero_weight_embedding, args)
 
                             # INTRA RELATION AGGREGATION
                             hidden_user_his_neighbor = model.his_neighbor_attention(user_his_neighbor_emb_input, user_embedding_input, user_his_t_emb_input, user_his_w_emb_input)
@@ -228,8 +230,8 @@ with trange(args.epochs) as progress_bar1:
                             loss += MSELoss(user_embedding_output, user_embedding_input.detach())
 
                             # CALCULATE STATE CHANGE LOSS
-                            if args.state_change:
-                                loss += calculate_state_prediction_loss(model, tbatch_interactionids, user_embeddings_timeseries, y_true, crossEntropyLoss) 
+                            # if args.state_change:
+                            #     loss += calculate_state_prediction_loss(model, tbatch_interactionids, user_embeddings_timeseries, y_true, crossEntropyLoss) 
 
                     # BACKPROPAGATE ERROR AFTER END OF T-BATCH
                     total_loss += loss.item()
@@ -249,7 +251,7 @@ with trange(args.epochs) as progress_bar1:
                     tbatch_to_insert = -1
 
         # END OF ONE EPOCH 
-        print "\n\nTotal loss in this epoch = %f" % (total_loss)
+        print ("\n\nTotal loss in this epoch = %f" % (total_loss))
         item_embeddings_dystat = torch.cat([item_embeddings, item_embedding_static], dim=1)
         user_embeddings_dystat = torch.cat([user_embeddings, user_embedding_static], dim=1)
         # SAVE CURRENT MODEL TO DISK TO BE USED IN EVALUATION.
@@ -259,6 +261,6 @@ with trange(args.epochs) as progress_bar1:
         item_embeddings = initial_item_embedding.repeat(num_items, 1)
 
 # END OF ALL EPOCHS. SAVE FINAL MODEL DISK TO BE USED IN EVALUATION.
-print "\n\n*** Training complete. Saving final model. ***\n\n"
+print ("\n\n*** Training complete. Saving final model. ***\n\n")
 save_model(model, optimizer, args, ep, user_embeddings_dystat, item_embeddings_dystat, train_end_idx, user_embeddings_timeseries, item_embeddings_timeseries)
 

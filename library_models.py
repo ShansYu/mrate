@@ -15,7 +15,8 @@ import math, random
 import sys
 from collections import defaultdict
 import os
-import cPickle
+# import cPickle
+import pickle
 import gpustat
 from itertools import chain
 from tqdm import tqdm, trange, tqdm_notebook, tnrange
@@ -32,6 +33,13 @@ except NameError:
 
 total_reinitialization_count = 0
 
+# his_user2item = defaultdict(list)
+# his_item2user = defaultdict(list)
+# com_user2user = defaultdict(list)
+# com_item2item = defaultdict(list)
+# seq_user2user = defaultdict(list)
+# seq_item2item = defaultdict(list)
+
 # A NORMALIZATION LAYER
 class NormalLinear(nn.Linear):
     def reset_parameters(self):
@@ -46,7 +54,7 @@ class JODIE(nn.Module):
     def __init__(self, args, num_features, num_users, num_items):
         super(JODIE,self).__init__()
 
-        print "*** Initializing the JODIE model ***"
+        print ("*** Initializing the JODIE model ***")
         self.modelname = args.model
         self.embedding_dim = args.embedding_dim
         self.num_users = num_users
@@ -56,17 +64,17 @@ class JODIE(nn.Module):
         self.num_neighbor = args.num_neighbor
         self.num_self_attention_head = 50
 
-        print "Initializing user and item embeddings"
+        print ("Initializing user and item embeddings")
         self.initial_user_embedding = nn.Parameter(torch.Tensor(args.embedding_dim))
         self.initial_item_embedding = nn.Parameter(torch.Tensor(args.embedding_dim))
 
         rnn_input_size_items = rnn_input_size_users = 2*self.embedding_dim + 1
 
-        print "Initializing user and item RNNs"
+        print ("Initializing user and item RNNs")
         self.item_rnn = nn.RNNCell(rnn_input_size_users, self.embedding_dim)
         self.user_rnn = nn.RNNCell(rnn_input_size_items, self.embedding_dim)
 
-        print "Initializing linear layers"
+        print ("Initializing linear layers")
         self.linear_layer1 = nn.Linear(self.embedding_dim, 50)
         self.linear_layer2 = nn.Linear(50, 2)
         self.prediction_layer = nn.Linear(self.embedding_dim * 2, self.embedding_dim)
@@ -90,7 +98,7 @@ class JODIE(nn.Module):
         self.key = nn.Linear(self.embedding_dim, self.num_self_attention_head)
         self.value = nn.Linear(self.embedding_dim, self.num_self_attention_head)
         self.fc = nn.Linear(3*self.num_self_attention_head, self.embedding_dim)
-        print "*** JODIE initialization complete ***\n\n"
+        print ("*** JODIE initialization complete ***\n\n")
 
     def forward(self, user_embeddings, item_embeddings, user_neighbor_embeddings, item_neighbor_embeddings, timediffs=None, select=None):
         if select == 'item_update':
@@ -122,15 +130,66 @@ class JODIE(nn.Module):
         return X_out
 
     def multi_head_attention(self, neighbor_embeddings, target_embeddings, t_tensor, w_tensor, hidden_layer, weight_layer):
+        neighbor_embeddings = neighbor_embeddings.cuda()
+        t_tensor = t_tensor.cuda()
+        w_tensor = w_tensor.cuda()
         hidden_neighbor = hidden_layer(neighbor_embeddings)
         hidden_target = hidden_layer(target_embeddings)
-        p = nn.Sigmoid()(self.attention_p(torch.cat([t_tensor, w_tensor], dim=2)))   # input batch_size,num_neighbor,2 / output batch_size,num_neighbor,1
-        tmp = torch.resahpe(hidden_target, (-1, 1, self.embedding_dim))
-        c = nn.LeakyReLU()(weight_layer(torch.cat([tmp.repeat(1,self.num_neighbor,1), neighbor_embeddings], dim=2) * p)) # batch_size,num_neighbor,2dim * batch_size,num_neighbor,1
+        p = nn.Sigmoid()(self.attention_p(torch.cat([t_tensor, w_tensor], dim=2)))
+        hidden_target = hidden_target.unsqueeze(1)
+        # print('hidden_target shape:{}'.format(hidden_target.shape))
+        # tmp = target_embeddings.repeat(1,self.num_neighbor,1)
+        # print('target_embeddings shape:{}'.format(target_embeddings.shape))
+        # print('target_embeddings.repeat shape: {}, neighbor_embeddings: {}'.format(tmp.shape, neighbor_embeddings.shape))
+        # c = nn.LeakyReLU()(weight_layer(torch.cat([target_embeddings.repeat(1,self.num_neighbor,1), neighbor_embeddings], dim=2) * p))
+        c = nn.LeakyReLU()(weight_layer(torch.cat([hidden_target.repeat(1,self.num_neighbor,1), neighbor_embeddings], dim=2) * p))
         a = nn.Softmax()(torch.reshape(c, (-1, self.num_neighbor)))
         a_reshape = torch.reshape(a, (-1, self.num_neighbor, 1))
         out = torch.reshape(torch.sum(hidden_neighbor * a_reshape, dim=1), (-1, self.embedding_dim, 1)) # bacth_size, dim, 1
         return out
+
+    # def multi_head_attention(self, neighbor_embeddings, target_embeddings, t_tensor, w_tensor, hidden_layer, weight_layer):
+    #     neighbor_embeddings = neighbor_embeddings.cuda()
+    #     t_tensor = t_tensor.cuda()
+    #     w_tensor = w_tensor.cuda()
+    #     hidden_neighbor = hidden_layer(neighbor_embeddings)
+    #     hidden_target = hidden_layer(target_embeddings)
+    #     p = nn.Sigmoid()(self.attention_p(torch.cat([t_tensor, w_tensor], dim=1)))
+    #     c = nn.LeakyReLU()(weight_layer(torch.cat([target_embeddings.repeat(1,self.num_neighbor,1), neighbor_embeddings], dim=1) * p))
+    #     a = nn.Softmax()(torch.reshape(c, (-1, self.num_neighbor)))
+    #     a_reshape = torch.reshape(a, (-1, self.num_neighbor, 1))
+    #     out = torch.reshape(torch.sum(hidden_neighbor * a_reshape, dim=1), (-1, self.embedding_dim, 1)) # bacth_size, dim, 1
+    #     return out
+
+    # def multi_head_attention(self, neighbor_embeddings, target_embeddings, t_tensor, w_tensor, hidden_layer, weight_layer):
+    #     neighbor_embeddings = neighbor_embeddings.cuda()
+    #     t_tensor = t_tensor.cuda()
+    #     w_tensor = w_tensor.cuda()
+        
+    #     hidden_neighbor = hidden_layer(neighbor_embeddings)
+    #     hidden_target = hidden_layer(target_embeddings)
+    #     # tw_cat = torch.cat([t_tensor, w_tensor], dim=1)
+    #     tw_cat = torch.cat([t_tensor, w_tensor], dim=2)
+    #     print('tshape: {}, wshape: {}, tw_cat shape: {}'.format(t_tensor.shape, w_tensor.shape, tw_cat.shape))
+    #     p = nn.Sigmoid()(self.attention_p(tw_cat))
+    #     # his_neighbor_head_1 = self.multi_head_attention(neighbor_embeddings, target_embeddings, t_tensor, w_tensor, self.attention_hidden_1, self.attention_weight_his_1)
+    #     # 2*256 1
+    #     tt_reshape = target_embeddings.repeat(1, self.num_neighbor, 1)
+    #     print('t shape: {}'.format(target_embeddings.shape))
+    #     print('0: {}, 2: {}'.format(target_embeddings.repeat(self.num_neighbor, 1, 1).shape, target_embeddings.repeat(1, 1, self.num_neighbor).shape))
+    #     print('tt_reshape shape: {}, neighbor_emb shape: {}'.format(tt_reshape.shape, neighbor_embeddings.shape))
+    #     # tn_cat = torch.cat([tt_reshape, neighbor_embeddings], dim=1)
+    #     tn_cat = torch.cat([tt_reshape, neighbor_embeddings], dim=2)
+    #     tn_p = tn_cat * p
+    #     print('tn_cat shape: {}, multiply shape: {}'.format(tn_cat.shape, tn_p.shape))
+    #     w = weight_layer(tn_p)
+    #     print('wshape: {}'.format(w.shape))
+    #     # c = nn.LeakyReLU()(weight_layer(torch.cat([target_embeddings.repeat(1,num_neighbors,1), neighbor_embeddings], dim=1) * p))
+    #     c = nn.LeakyReLU()(w)
+    #     a = nn.Softmax()(torch.reshape(c, (-1, self.num_neighbor)))
+    #     a_reshape = torch.reshape(a, (-1, self.num_neighbor, 1))
+    #     out = torch.reshape(torch.sum(hidden_neighbor * a_reshape, dim=1), (-1, self.embedding_dim, 1)) # bacth_size, dim, 1
+    #     return out
 
     def his_neighbor_attention(self, neighbor_embeddings, target_embeddings, t_tensor, w_tensor):
         his_neighbor_head_1 = self.multi_head_attention(neighbor_embeddings, target_embeddings, t_tensor, w_tensor, self.attention_hidden_1, self.attention_weight_his_1)
@@ -143,7 +202,8 @@ class JODIE(nn.Module):
         com_neighbor_head_1 = self.multi_head_attention(neighbor_embeddings, target_embeddings, t_tensor, w_tensor, self.attention_hidden_1, self.attention_weight_com_1)
         com_neighbor_head_2 = self.multi_head_attention(neighbor_embeddings, target_embeddings, t_tensor, w_tensor, self.attention_hidden_2, self.attention_weight_com_2)
         com_neighbor_head_3 = self.multi_head_attention(neighbor_embeddings, target_embeddings, t_tensor, w_tensor, self.attention_hidden_3, self.attention_weight_com_3)
-        com_neighbor_embedding = torch.mean(torch.cat([his_neighbor_head_1, his_neighbor_head_2, his_neighbor_head_3], dim=2), dim=2) # batch_size, dim
+        # com_neighbor_embedding = torch.mean(torch.cat([his_neighbor_head_1, his_neighbor_head_2, his_neighbor_head_3], dim=2), dim=2) # batch_size, dim
+        com_neighbor_embedding = torch.mean(torch.cat([com_neighbor_head_1, com_neighbor_head_2, com_neighbor_head_3], dim=2), dim=2) # batch_size, dim
         return com_neighbor_embedding
 
     def seq_neighbor_attention(self, neighbor_embeddings, target_embeddings, t_tensor, w_tensor):
@@ -160,7 +220,8 @@ class JODIE(nn.Module):
         v = self.value(h)
 
         attention_scores = torch.matmul(q, k.transpose(-1, -2))
-        attention_scores = attention_scores/torch.sqrt(self.num_self_attention_head)
+        # attention_scores = attention_scores/torch.sqrt(self.num_self_attention_head)
+        attention_scores = attention_scores/np.sqrt(self.num_self_attention_head)
         attention_prob = nn.Softmax()(attention_scores)
         context_layer = torch.reshape(torch.matmul(attention_prob, v), [-1, 3*self.num_self_attention_head])
         out = nn.Softmax()(self.fc(context_layer)) # batch_size, dim
@@ -216,7 +277,7 @@ def get_max_neighbor_tbatchid(nodeid, neighbor_dict, batchid_dict):
         return max([batchid_dict[r[0]] for r in neighbor_dict[nodeid]])
 
 # LOCAL RELATION GRAPH CONSTRUCTION
-def get_historical_neighbor(sorc_id, dest_id, t, his_dict):
+def get_historical_neighbor(sorc_id, dest_id, t, his_dict, args):
     if sorc_id not in his_dict:
         his_dict[sorc_id] = [(dest_id, t, 1)]
     else:
@@ -232,19 +293,20 @@ def get_historical_neighbor(sorc_id, dest_id, t, his_dict):
             his_dict[sorc_id].append((dest_id, t, 1))
     return his_dict
 
-def get_common_neighbor(sorc_id, current_timestamp, delta_T, com_dict, T_sequence):
+def get_common_neighbor(sorc_id, dest_id, current_timestamp, delta_T, com_dict, T_sequence, args):
     for i in range(len(T_sequence)-1, -1, -1):
         each_t = T_sequence[i][1]
         if current_timestamp-each_t > 0 and current_timestamp-each_t < delta_T:
             dest_node = T_sequence[i][0]
-            com_dict = get_common_neighbor_each(sorc_id, dest_id, current_timestamp, com_dict)
-            com_dict = get_common_neighbor_each(dest_id, sorc_id, current_timestamp, com_dict)
+            com_dict = get_common_neighbor_each(sorc_id, dest_id, current_timestamp, com_dict, args)
+            com_dict = get_common_neighbor_each(dest_id, sorc_id, current_timestamp, com_dict, args)
         elif current_timestamp-each_t >= delta_T:
             break
     return com_dict
 
-def get_common_neighbor_each(sorc_id, dest_id, current_timestamp, com_dict):
-    if sorc_id not in com_dict：
+# def get_common_neighbor_each(sorc_id, dest_id, current_timestamp, com_dict):
+def get_common_neighbor_each(sorc_id, dest_node, current_timestamp, com_dict, args):
+    if sorc_id not in com_dict:
         com_dict[sorc_id] = [(dest_node, current_timestamp, 1)]
     else:
         neighbor_nodes = [r[0] for r in com_dict[sorc_id]]
@@ -257,9 +319,9 @@ def get_common_neighbor_each(sorc_id, dest_id, current_timestamp, com_dict):
                 pop_id = neighbor_nodes_sort.pop()
                 com_dict[sorc_id] = neighbor_nodes_sort
             com_dict[sorc_id].append((dest_node, current_timestamp, 1))
-         return com_dict
+    return com_dict
 
-def get_relation_neighbor_embeddings(target_nodes, neighbor_dict, node_embeddings, zero_neighbor_embedding, zero_weight_embedding):
+def get_relation_neighbor_embeddings(target_nodes, neighbor_dict, node_embeddings, zero_neighbor_embedding, zero_weight_embedding, args):
     for i in range(len(target_nodes)):
         each_node = target_nodes[i]
         if each_node not in neighbor_dict:
@@ -267,12 +329,18 @@ def get_relation_neighbor_embeddings(target_nodes, neighbor_dict, node_embedding
             each_t_emb = zero_weight_embedding
             each_w_emb = zero_weight_embedding
         else:
-            node_list = torch.LongTensor([r[0] for r in neighbor_dict[each_node]]).cuda()
-            t_list = torch.LongTensor([r[1] for r in neighbor_dict[each_node]]).cuda()
-            w_list = torch.LongTensor([r[2] for r in neighbor_dict[each_node]]).cuda()
-            each_neighbor_emb_cat = torch.cat([torch.reshape(node_embeddings[node_list,:], (1, -1)), torch.reshape(zero_neighbor_embedding, (1,-1)], dim = 1)
-            each_t_emb_cat = torch.cat([torch.reshape(t_list, (1, -1)), torch.reshape(zero_weight_embedding, (1,-1)], dim = 1)
-            each_w_emb_cat = torch.cat([torch.reshape(w_list, (1, -1)), torch.reshape(zero_weight_embedding, (1,-1)], dim = 1)
+            # node_list = torch.LongTensor([r[0] for r in neighbor_dict[each_node]]).cuda()
+            # t_list = torch.LongTensor([r[1] for r in neighbor_dict[each_node]]).cuda()
+            # w_list = torch.LongTensor([r[2] for r in neighbor_dict[each_node]]).cuda()
+            node_list = torch.FloatTensor([r[0] for r in neighbor_dict[each_node]])
+            t_list = torch.FloatTensor([r[1] for r in neighbor_dict[each_node]])
+            w_list = torch.FloatTensor([r[2] for r in neighbor_dict[each_node]])
+            long_node_list = torch.LongTensor(node_list.cpu().numpy())
+            # long_t_list = torch.LongTensor(t_list.cpu().numpy()).cuda()
+            # long_w_list = torch.LongTensor(w_list.cpu().numpy()).cuda()
+            each_neighbor_emb_cat = torch.cat([torch.reshape(node_embeddings.cpu()[long_node_list,:], (1, -1)), torch.reshape(zero_neighbor_embedding, (1,-1))], dim = 1)
+            each_t_emb_cat = torch.cat([torch.reshape(t_list, (1, -1)), torch.reshape(zero_weight_embedding, (1,-1))], dim = 1)
+            each_w_emb_cat = torch.cat([torch.reshape(w_list, (1, -1)), torch.reshape(zero_weight_embedding, (1,-1))], dim = 1)
             each_neighbor_emb = torch.reshape(each_neighbor_emb_cat[:,:args.num_neighbor*args.embedding_dim], (1, args.num_neighbor, args.embedding_dim))
             each_t_emb = torch.reshape(each_t_emb_cat[:,:args.num_neighbor], (1, args.num_neighbor, 1))
             each_w_emb = torch.reshape(each_w_emb_cat[:,:args.num_neighbor], (1, args.num_neighbor, 1))
@@ -286,22 +354,23 @@ def get_relation_neighbor_embeddings(target_nodes, neighbor_dict, node_embedding
           relation_w_emb = torch.cat([relation_w_emb, each_w_emb], dim = 0)
     return relation_neighbor_emb, relation_t_emb, relation_w_emb
 
-def get_seq_neighbor_embeddings(target_nodes, his_neighbor_emb_input, node_embeddings_input, zero_neighbor_embedding, zero_weight_embedding):
+def get_seq_neighbor_embeddings(target_nodes, his_neighbor_emb_input, node_embeddings_input, zero_neighbor_embedding, zero_weight_embedding, args):
     node_seq_embedding = torch.mean(his_neighbor_emb_input, dim=1) # batch_size, dim
-    zero = torch.zeros([list(node_seq_embedding.size())[0], 1], dtype=torch.long))
+    zero = torch.zeros([list(node_seq_embedding.size())[0], 1], dtype=torch.long)
     for i in range(len(target_nodes)):
         each_node_embedding = node_seq_embedding[i]
         each_node_embedding.expand(len(target_nodes), args.embedding_dim)
-        cos = F.CosineSimilarity(each_node_embedding, node_seq_embedding, dim=1)
+        # cos = F.CosineSimilarity(each_node_embedding, node_seq_embedding, dim=1)
+        cos = F.cosine_similarity(each_node_embedding, node_seq_embedding, dim=1)
         cos_reshape = torch.reshape(cos, (-1,1))
         mask = torch.where(cos_reshape > 0.5, cos_reshape, zero)
         mask_index = torch.reshape(torch.nonzero(mask), (1,-1))
         each_node_neighbor_embedding = node_embeddings_input[mask_index, :] #n,dim
         each_w = cos_reshape[mask_index, :] #n,1
 
-        each_neighbor_emb_cat = torch.cat([torch.reshape(each_node_neighbor_embedding, (1, -1)), torch.reshape(zero_neighbor_embedding, (1,-1)], dim = 1)
-        each_t_emb_cat = torch.cat([torch.reshape(each_w, (1, -1)), torch.reshape(zero_weight_embedding, (1,-1)], dim = 1)
-        each_w_emb_cat = torch.cat([torch.reshape(each_w, (1, -1)), torch.reshape(zero_weight_embedding, (1,-1)], dim = 1)
+        each_neighbor_emb_cat = torch.cat([torch.reshape(each_node_neighbor_embedding.cpu(), (1, -1)), torch.reshape(zero_neighbor_embedding, (1,-1))], dim = 1)
+        each_t_emb_cat = torch.cat([torch.reshape(each_w, (1, -1)), torch.reshape(zero_weight_embedding, (1,-1))], dim = 1)
+        each_w_emb_cat = torch.cat([torch.reshape(each_w, (1, -1)), torch.reshape(zero_weight_embedding, (1,-1))], dim = 1)
         each_neighbor_emb = torch.reshape(each_neighbor_emb_cat[:,:args.num_neighbor*args.embedding_dim], (1, args.num_neighbor, args.embedding_dim))
         each_t_emb = torch.reshape(each_t_emb_cat[:,:args.num_neighbor], (1, args.num_neighbor, 1))
         each_w_emb = torch.reshape(each_w_emb_cat[:,:args.num_neighbor], (1, args.num_neighbor, 1))
@@ -319,7 +388,8 @@ def get_seq_neighbor_embeddings(target_nodes, his_neighbor_emb_input, node_embed
 def calculate_state_prediction_loss(model, tbatch_interactionids, user_embeddings_time_series, y_true, loss_function):
     # PREDCIT THE LABEL FROM THE USER DYNAMIC EMBEDDINGS
     prob = model.predict_label(user_embeddings_time_series[tbatch_interactionids,:])
-    y = Variable(torch.LongTensor(y_true).cuda()[tbatch_interactionids])
+    # y = Variable(torch.LongTensor(y_true).cuda()[tbatch_interactionids])
+    y = Variable(torch.FloatTensor(y_true).cuda()[tbatch_interactionids])
 
     loss = loss_function(prob, y)
 
@@ -328,7 +398,7 @@ def calculate_state_prediction_loss(model, tbatch_interactionids, user_embedding
 
 # SAVE TRAINED MODEL TO DISK
 def save_model(model, optimizer, args, epoch, user_embeddings, item_embeddings, train_end_idx, user_embeddings_time_series=None, item_embeddings_time_series=None, path=PATH):
-    print "*** Saving embeddings and model ***"
+    print ("*** Saving embeddings and model ***")
     state = {
             'user_embeddings': user_embeddings.data.cpu().numpy(),
             'item_embeddings': item_embeddings.data.cpu().numpy(),
@@ -348,7 +418,7 @@ def save_model(model, optimizer, args, epoch, user_embeddings, item_embeddings, 
 
     filename = os.path.join(directory, "checkpoint.%s.ep%d.tp%.1f.pth.tar" % (args.model, epoch, args.train_proportion))
     torch.save(state, filename)
-    print "*** Saved embeddings and model to file: %s ***\n\n" % filename
+    print ("*** Saved embeddings and model to file: %s ***\n\n" % filename)
 
 
 # LOAD PREVIOUSLY TRAINED AND SAVED MODEL
@@ -356,7 +426,7 @@ def load_model(model, optimizer, args, epoch):
     modelname = args.model
     filename = PATH + "saved_models/%s/checkpoint.%s.ep%d.tp%.1f.pth.tar" % (args.network, modelname, epoch, args.train_proportion)
     checkpoint = torch.load(filename)
-    print "Loading saved embeddings and model: %s" % filename
+    print ("Loading saved embeddings and model: %s" % filename)
     args.start_epoch = checkpoint['epoch']
     user_embeddings = Variable(torch.from_numpy(checkpoint['user_embeddings']).cuda())
     item_embeddings = Variable(torch.from_numpy(checkpoint['item_embeddings']).cuda())
