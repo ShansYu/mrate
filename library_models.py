@@ -353,7 +353,7 @@ def get_seq_neighbor_embeddings(target_nodes, his_neighbor_emb_input, node_embed
     zero = torch.zeros([list(node_seq_embedding.size())[0], 1], dtype=torch.float)
     for i in range(len(target_nodes)):
         each_node_embedding = node_seq_embedding[i]
-        each_node_embedding.expand(len(target_nodes), args.embedding_dim)
+        each_node_embedding = each_node_embedding.expand(len(target_nodes), args.embedding_dim)
         # cos = F.CosineSimilarity(each_node_embedding, node_seq_embedding, dim=1)
         cos = F.cosine_similarity(each_node_embedding, node_seq_embedding, dim=1)
         cos_reshape = torch.reshape(cos, (-1,1))
@@ -391,7 +391,7 @@ def calculate_state_prediction_loss(model, tbatch_interactionids, user_embedding
 
 
 # SAVE TRAINED MODEL TO DISK
-def save_model(model, optimizer, args, epoch, user_embeddings, item_embeddings, train_end_idx, user_embeddings_time_series=None, item_embeddings_time_series=None, his_user2item, his_item2user, com_user2user, com_item2item, path=PATH):
+def save_model(model, optimizer, args, epoch, user_embeddings, item_embeddings, train_end_idx, user_embeddings_time_series=None, item_embeddings_time_series=None, his_user2item=defaultdict(list), his_item2user=defaultdict(list), com_user2user=defaultdict(list), com_item2item=defaultdict(list), path=PATH):
     print ("*** Saving embeddings and model ***")
     state = {
             'user_embeddings': user_embeddings.data.cpu().numpy(),
