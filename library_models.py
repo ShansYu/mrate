@@ -130,9 +130,9 @@ class JODIE(nn.Module):
         return X_out
 
     def multi_head_attention(self, neighbor_embeddings, target_embeddings, t_tensor, w_tensor, hidden_layer, weight_layer):
-        neighbor_embeddings = neighbor_embeddings.cuda()
-        t_tensor = t_tensor.cuda()
-        w_tensor = w_tensor.cuda()
+        neighbor_embeddings = neighbor_embeddings.cpu()
+        t_tensor = t_tensor.cpu()
+        w_tensor = w_tensor.cpu()
         hidden_neighbor = hidden_layer(neighbor_embeddings)
         hidden_target = hidden_layer(target_embeddings)
         p = nn.Sigmoid()(self.attention_p(torch.cat([t_tensor, w_tensor], dim=2)))
@@ -149,9 +149,9 @@ class JODIE(nn.Module):
         return out
 
     # def multi_head_attention(self, neighbor_embeddings, target_embeddings, t_tensor, w_tensor, hidden_layer, weight_layer):
-    #     neighbor_embeddings = neighbor_embeddings.cuda()
-    #     t_tensor = t_tensor.cuda()
-    #     w_tensor = w_tensor.cuda()
+    #     neighbor_embeddings = neighbor_embeddings.cpu()
+    #     t_tensor = t_tensor.cpu()
+    #     w_tensor = w_tensor.cpu()
     #     hidden_neighbor = hidden_layer(neighbor_embeddings)
     #     hidden_target = hidden_layer(target_embeddings)
     #     p = nn.Sigmoid()(self.attention_p(torch.cat([t_tensor, w_tensor], dim=1)))
@@ -162,9 +162,9 @@ class JODIE(nn.Module):
     #     return out
 
     # def multi_head_attention(self, neighbor_embeddings, target_embeddings, t_tensor, w_tensor, hidden_layer, weight_layer):
-    #     neighbor_embeddings = neighbor_embeddings.cuda()
-    #     t_tensor = t_tensor.cuda()
-    #     w_tensor = w_tensor.cuda()
+    #     neighbor_embeddings = neighbor_embeddings.cpu()
+    #     t_tensor = t_tensor.cpu()
+    #     w_tensor = w_tensor.cpu()
         
     #     hidden_neighbor = hidden_layer(neighbor_embeddings)
     #     hidden_target = hidden_layer(target_embeddings)
@@ -255,21 +255,15 @@ def reinitialize_tbatches():
     total_reinitialization_count +=1
 
 def initialize_neighbors_dicts():
-    global his_user2item, his_item2user, com_user2user, com_item2item, seq_user2user, seq_item2item
+    global his_user2item, his_item2user, com_user2user, com_item2item
     # global last_his_user2item, last_his_item2user
     his_user2item = defaultdict(list)
     his_item2user = defaultdict(list)
     com_user2user = defaultdict(list)
     com_item2item = defaultdict(list)
-    seq_user2user = defaultdict(list)
-    seq_item2item = defaultdict(list)
+#     seq_user2user = defaultdict(list)
+#     seq_item2item = defaultdict(list)
 
-    # last neighbor dict
-    # last_his_user2item = defaultdict(list)
-    # last_his_item2user = defaultdict(list)
-
-    # T_user_sequence = []
-    # T_item_sequence = []
 def get_max_neighbor_tbatchid(nodeid, neighbor_dict, batchid_dict):
     if nodeid not in neighbor_dict:
         return -1
@@ -329,15 +323,15 @@ def get_relation_neighbor_embeddings(target_nodes, neighbor_dict, node_embedding
             each_t_emb = zero_weight_embedding
             each_w_emb = zero_weight_embedding
         else:
-            # node_list = torch.LongTensor([r[0] for r in neighbor_dict[each_node]]).cuda()
-            # t_list = torch.LongTensor([r[1] for r in neighbor_dict[each_node]]).cuda()
-            # w_list = torch.LongTensor([r[2] for r in neighbor_dict[each_node]]).cuda()
+            # node_list = torch.LongTensor([r[0] for r in neighbor_dict[each_node]]).cpu()
+            # t_list = torch.LongTensor([r[1] for r in neighbor_dict[each_node]]).cpu()
+            # w_list = torch.LongTensor([r[2] for r in neighbor_dict[each_node]]).cpu()
             node_list = torch.FloatTensor([r[0] for r in neighbor_dict[each_node]])
             t_list = torch.FloatTensor([r[1] for r in neighbor_dict[each_node]])
             w_list = torch.FloatTensor([r[2] for r in neighbor_dict[each_node]])
             long_node_list = torch.LongTensor(node_list.cpu().numpy())
-            # long_t_list = torch.LongTensor(t_list.cpu().numpy()).cuda()
-            # long_w_list = torch.LongTensor(w_list.cpu().numpy()).cuda()
+            # long_t_list = torch.LongTensor(t_list.cpu().numpy()).cpu()
+            # long_w_list = torch.LongTensor(w_list.cpu().numpy()).cpu()
             each_neighbor_emb_cat = torch.cat([torch.reshape(node_embeddings.cpu()[long_node_list,:], (1, -1)), torch.reshape(zero_neighbor_embedding, (1,-1))], dim = 1)
             each_t_emb_cat = torch.cat([torch.reshape(t_list, (1, -1)), torch.reshape(zero_weight_embedding, (1,-1))], dim = 1)
             each_w_emb_cat = torch.cat([torch.reshape(w_list, (1, -1)), torch.reshape(zero_weight_embedding, (1,-1))], dim = 1)
@@ -356,7 +350,7 @@ def get_relation_neighbor_embeddings(target_nodes, neighbor_dict, node_embedding
 
 def get_seq_neighbor_embeddings(target_nodes, his_neighbor_emb_input, node_embeddings_input, zero_neighbor_embedding, zero_weight_embedding, args):
     node_seq_embedding = torch.mean(his_neighbor_emb_input, dim=1) # batch_size, dim
-    zero = torch.zeros([list(node_seq_embedding.size())[0], 1], dtype=torch.long)
+    zero = torch.zeros([list(node_seq_embedding.size())[0], 1], dtype=torch.float)
     for i in range(len(target_nodes)):
         each_node_embedding = node_seq_embedding[i]
         each_node_embedding.expand(len(target_nodes), args.embedding_dim)
@@ -388,8 +382,8 @@ def get_seq_neighbor_embeddings(target_nodes, his_neighbor_emb_input, node_embed
 def calculate_state_prediction_loss(model, tbatch_interactionids, user_embeddings_time_series, y_true, loss_function):
     # PREDCIT THE LABEL FROM THE USER DYNAMIC EMBEDDINGS
     prob = model.predict_label(user_embeddings_time_series[tbatch_interactionids,:])
-    # y = Variable(torch.LongTensor(y_true).cuda()[tbatch_interactionids])
-    y = Variable(torch.FloatTensor(y_true).cuda()[tbatch_interactionids])
+    # y = Variable(torch.LongTensor(y_true).cpu()[tbatch_interactionids])
+    y = Variable(torch.FloatTensor(y_true).cpu()[tbatch_interactionids])
 
     loss = loss_function(prob, y)
 
@@ -397,7 +391,7 @@ def calculate_state_prediction_loss(model, tbatch_interactionids, user_embedding
 
 
 # SAVE TRAINED MODEL TO DISK
-def save_model(model, optimizer, args, epoch, user_embeddings, item_embeddings, train_end_idx, user_embeddings_time_series=None, item_embeddings_time_series=None, path=PATH):
+def save_model(model, optimizer, args, epoch, user_embeddings, item_embeddings, train_end_idx, user_embeddings_time_series=None, item_embeddings_time_series=None, his_user2item, his_item2user, com_user2user, com_item2item, path=PATH):
     print ("*** Saving embeddings and model ***")
     state = {
             'user_embeddings': user_embeddings.data.cpu().numpy(),
@@ -411,6 +405,12 @@ def save_model(model, optimizer, args, epoch, user_embeddings, item_embeddings, 
     if user_embeddings_time_series is not None:
         state['user_embeddings_time_series'] = user_embeddings_time_series.data.cpu().numpy()
         state['item_embeddings_time_series'] = item_embeddings_time_series.data.cpu().numpy()
+
+    # add neighbor dict
+    state['his_user2item'] = his_user2item.data.cpu().numpy()
+    state['his_item2user'] = his_item2user.data.cpu().numpy()
+    state['com_user2user'] = com_user2user.data.cpu().numpy()
+    state['com_item2item'] = com_item2item.data.cpu().numpy()
 
     directory = os.path.join(path, 'saved_models/%s' % args.network)
     if not os.path.exists(directory):
@@ -428,19 +428,31 @@ def load_model(model, optimizer, args, epoch):
     checkpoint = torch.load(filename)
     print ("Loading saved embeddings and model: %s" % filename)
     args.start_epoch = checkpoint['epoch']
-    user_embeddings = Variable(torch.from_numpy(checkpoint['user_embeddings']).cuda())
-    item_embeddings = Variable(torch.from_numpy(checkpoint['item_embeddings']).cuda())
+    user_embeddings = Variable(torch.from_numpy(checkpoint['user_embeddings']).cpu())
+    item_embeddings = Variable(torch.from_numpy(checkpoint['item_embeddings']).cpu())
     try:
         train_end_idx = checkpoint['train_end_idx']
     except KeyError:
         train_end_idx = None
 
     try:
-        user_embeddings_time_series = Variable(torch.from_numpy(checkpoint['user_embeddings_time_series']).cuda())
-        item_embeddings_time_series = Variable(torch.from_numpy(checkpoint['item_embeddings_time_series']).cuda())
+        user_embeddings_time_series = Variable(torch.from_numpy(checkpoint['user_embeddings_time_series']).cpu())
+        item_embeddings_time_series = Variable(torch.from_numpy(checkpoint['item_embeddings_time_series']).cpu())
     except:
         user_embeddings_time_series = None
         item_embeddings_time_series = None
+
+    global his_user2item, his_item2user, com_user2user, com_item2item
+    try:
+        his_user2item = torch.from_numpy(checkpoint['his_user2item']).cpu()
+        his_item2user = torch.from_numpy(checkpoint['his_item2user']).cpu()
+        com_user2user = torch.from_numpy(checkpoint['com_user2user']).cpu()
+        com_item2item = torch.from_numpy(checkpoint['com_item2item']).cpu()
+    except:
+        his_user2item = defaultdict(list)
+        his_item2user = defaultdict(list)
+        com_user2user = defaultdict(list)
+        com_item2item = defaultdict(list)
 
     model.load_state_dict(checkpoint['state_dict'])
     optimizer.load_state_dict(checkpoint['optimizer'])
