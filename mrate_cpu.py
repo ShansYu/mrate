@@ -262,5 +262,4 @@ with trange(args.epochs) as progress_bar1:
 
 # END OF ALL EPOCHS. SAVE FINAL MODEL DISK TO BE USED IN EVALUATION.
 print ("\n\n*** Training complete. Saving final model. ***\n\n")
-save_model(model, optimizer, args, ep, user_embeddings_dystat, item_embeddings_dystat, train_end_idx, user_embeddings_timeseries, item_embeddings_timeseries)
-
+save_model(model, optimizer, args, ep, user_embeddings_dystat, item_embeddings_dystat, train_end_idx, user_embeddings_timeseries, item_embeddings_timeseries, lib.his_user2item, lib.his_item2user, lib.com_user2user, lib.com_item2item)
