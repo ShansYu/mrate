@@ -30,7 +30,7 @@ if args.train_proportion > 0.8:
 
 # SET GPU
 if args.gpu == -1:
-    args.gpu = select_free_gpu()
+   args.gpu = select_free_gpu()
 os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
 os.environ["CUDA_VISIBLE_DEVICES"] = str(args.gpu)
 
@@ -150,8 +150,8 @@ with trange(args.epochs) as progress_bar1:
                 lib.his_user2item = get_historical_neighbor(userid, itemid, timestamp, lib.his_user2item, args)
                 lib.his_item2user = get_historical_neighbor(itemid, userid, timestamp, lib.his_item2user, args)
                 # common interaction relations
-                T_user_sequence = sorted(lib.his_item2user[itemid], key=lambda x: x[1]) # 格式为 [(id,t,w)]
-                T_item_sequence = sorted(lib.his_user2item[userid], key=lambda x: x[1]) # 格式为 [(id,t,w)]
+                T_user_sequence = sorted(lib.his_item2user[itemid], key=lambda x: x[1]) # [(id,t,w)]
+                T_item_sequence = sorted(lib.his_user2item[userid], key=lambda x: x[1]) # [(id,t,w)]
                 lib.com_user2user = get_common_neighbor(userid, itemid, timestamp, delta_T, lib.com_user2user, T_user_sequence, args)
                 lib.com_item2item = get_common_neighbor(itemid, itemid, timestamp, delta_T, lib.com_item2item, T_item_sequence, args)
 
@@ -255,12 +255,11 @@ with trange(args.epochs) as progress_bar1:
         item_embeddings_dystat = torch.cat([item_embeddings, item_embedding_static], dim=1)
         user_embeddings_dystat = torch.cat([user_embeddings, user_embedding_static], dim=1)
         # SAVE CURRENT MODEL TO DISK TO BE USED IN EVALUATION.
-        save_model(model, optimizer, args, ep, user_embeddings_dystat, item_embeddings_dystat, train_end_idx, user_embeddings_timeseries, item_embeddings_timeseries)
+        save_model(model, optimizer, args, ep, user_embeddings_dystat, item_embeddings_dystat, train_end_idx, user_embeddings_timeseries, item_embeddings_timeseries, lib.his_user2item, lib.his_item2user, lib.com_user2user, lib.com_item2item)
 
         user_embeddings = initial_user_embedding.repeat(num_users, 1)
         item_embeddings = initial_item_embedding.repeat(num_items, 1)
 
 # END OF ALL EPOCHS. SAVE FINAL MODEL DISK TO BE USED IN EVALUATION.
 print ("\n\n*** Training complete. Saving final model. ***\n\n")
-save_model(model, optimizer, args, ep, user_embeddings_dystat, item_embeddings_dystat, train_end_idx, user_embeddings_timeseries, item_embeddings_timeseries)
-
+save_model(model, optimizer, args, ep, user_embeddings_dystat, item_embeddings_dystat, train_end_idx, user_embeddings_timeseries, item_embeddings_timeseries, lib.his_user2item, lib.his_item2user, lib.com_user2user, lib.com_item2item)

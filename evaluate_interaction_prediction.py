@@ -83,15 +83,15 @@ weight = torch.Tensor([1,true_labels_ratio]).cuda()
 crossEntropyLoss = nn.CrossEntropyLoss(weight=weight)
 MSELoss = nn.MSELoss()
 
-zero_neighbor_embedding = nn.Parameter(torch.zeros([1, num_neighbor, args.embedding_dim], dtype=torch.float))
-zero_weight_embedding = nn.Parameter(torch.zeros([1, num_neighbor, 1], dtype=torch.float))
+zero_neighbor_embedding = nn.Parameter(torch.zeros([1, args.num_neighbor, args.embedding_dim], dtype=torch.float))
+zero_weight_embedding = nn.Parameter(torch.zeros([1, args.num_neighbor, 1], dtype=torch.float))
 
 # INITIALIZE MODEL
 learning_rate = 1e-3
 optimizer = optim.Adam(model.parameters(), lr=learning_rate, weight_decay=1e-5)
 
 # LOAD THE MODEL
-model, optimizer, user_embeddings_dystat, item_embeddings_dystat, user_embeddings_timeseries, item_embeddings_timeseries, train_end_idx_training = load_model(model, optimizer, args, args.epoch)
+model, optimizer, user_embeddings_dystat, item_embeddings_dystat, user_embeddings_timeseries, item_embeddings_timeseries, train_end_idx_training, his_user2item, his_item2user, com_user2user, com_item2item = load_model(model, optimizer, args, args.epoch)
 if train_end_idx != train_end_idx_training:
     sys.exit('Training proportion during training and testing are different. Aborting.')
 
@@ -144,13 +144,13 @@ with trange(train_end_idx, test_end_idx) as progress_bar:
 
         # LOCAL RELATION GRAPH CONSTRUCTION
         # historical interaction relations
-        lib.his_user2item = get_historical_neighbor(userid, itemid, timestamp, lib.his_user2item, args)
-        lib.his_item2user = get_historical_neighbor(itemid, userid, timestamp, lib.his_item2user, args)
+        his_user2item = get_historical_neighbor(userid, itemid, timestamp, his_user2item, args)
+        his_item2user = get_historical_neighbor(itemid, userid, timestamp, his_item2user, args)
         # common interaction relations
-        T_user_sequence = sorted(lib.his_item2user[itemid], key=lambda x: x[1]) # 格式为 [(id,t,w)]
-        T_item_sequence = sorted(lib.his_user2item[userid], key=lambda x: x[1]) # 格式为 [(id,t,w)]
-        lib.com_user2user = get_common_neighbor(userid, itemid, timestamp, delta_T, lib.com_user2user, T_user_sequence, args)
-        lib.com_item2item = get_common_neighbor(itemid, itemid, timestamp, delta_T, lib.com_item2item, T_item_sequence, args)
+        T_user_sequence = sorted(his_item2user[itemid], key=lambda x: x[1]) # 格式为 [(id,t,w)]
+        T_item_sequence = sorted(his_user2item[userid], key=lambda x: x[1]) # 格式为 [(id,t,w)]
+        com_user2user = get_common_neighbor(userid, itemid, timestamp, delta_T, com_user2user, T_user_sequence, args)
+        com_item2item = get_common_neighbor(itemid, itemid, timestamp, delta_T, com_item2item, T_item_sequence, args)
 
         # LOAD USER AND ITEM EMBEDDING
         user_embedding_input = user_embeddings[torch.cuda.LongTensor([userid])]
@@ -163,11 +163,11 @@ with trange(train_end_idx, test_end_idx) as progress_bar:
         item_embedding_previous = item_embeddings[torch.cuda.LongTensor([itemid_previous])]
 
         # GET NEIGHBOR EMBEDDING INPUT
-        user_his_neighbor_emb_input, user_his_t_emb_input, user_his_w_emb_input = get_relation_neighbor_embeddings([userid], lib.his_user2item, item_embeddings, zero_neighbor_embedding, zero_weight_embedding, args) # n_batch_user, num_neighbor, dim/ n_batch_user, num_neighbor, 1
-        item_his_neighbor_emb_input, item_his_t_emb_input, item_his_w_emb_input = get_relation_neighbor_embeddings([itemid], lib.his_item2user, user_embeddings, zero_neighbor_embedding, zero_weight_embedding, args)
+        user_his_neighbor_emb_input, user_his_t_emb_input, user_his_w_emb_input = get_relation_neighbor_embeddings([userid], his_user2item, item_embeddings, zero_neighbor_embedding, zero_weight_embedding, args) # n_batch_user, num_neighbor, dim/ n_batch_user, num_neighbor, 1
+        item_his_neighbor_emb_input, item_his_t_emb_input, item_his_w_emb_input = get_relation_neighbor_embeddings([itemid], his_item2user, user_embeddings, zero_neighbor_embedding, zero_weight_embedding, args)
 
-        user_com_neighbor_emb_input, user_com_t_emb_input, user_com_w_emb_input = get_relation_neighbor_embeddings([userid], lib.com_user2user, user_embeddings, zero_neighbor_embedding, zero_weight_embedding, args) # n_batch_user, num_neighbor, dim/ n_batch_user, num_neighbor, 1
-        item_com_neighbor_emb_input, item_com_t_emb_input, item_com_w_emb_input = get_relation_neighbor_embeddings([itemid], lib.com_item2item, item_embeddings, zero_neighbor_embedding, zero_weight_embedding, args)
+        user_com_neighbor_emb_input, user_com_t_emb_input, user_com_w_emb_input = get_relation_neighbor_embeddings([userid], com_user2user, user_embeddings, zero_neighbor_embedding, zero_weight_embedding, args) # n_batch_user, num_neighbor, dim/ n_batch_user, num_neighbor, 1
+        item_com_neighbor_emb_input, item_com_t_emb_input, item_com_w_emb_input = get_relation_neighbor_embeddings([itemid], com_item2item, item_embeddings, zero_neighbor_embedding, zero_weight_embedding, args)
 
         # user_embedding_input = user_embeddings[tbatch_userids,:]
         # item_embedding_input = item_embeddings[tbatch_itemids,:]
@@ -264,13 +264,13 @@ metrics = ['Mean Reciprocal Rank', 'Recall@10']
 
 print('\n\n*** Validation performance of epoch %d ***' % args.epoch)
 fw.write('\n\n*** Validation performance of epoch %d ***\n' % args.epoch)
-for i in xrange(len(metrics)):
+for i in range(len(metrics)):
     print(metrics[i] + ': ' + str(performance_dict['validation'][i]))
     fw.write("Validation: " + metrics[i] + ': ' + str(performance_dict['validation'][i]) + "\n")
     
 print('\n\n*** Test performance of epoch %d ***' % args.epoch)
 fw.write('\n\n*** Test performance of epoch %d ***\n' % args.epoch)
-for i in xrange(len(metrics)):
+for i in range(len(metrics)):
     print(metrics[i] + ': ' + str(performance_dict['test'][i]))
     fw.write("Test: " + metrics[i] + ': ' + str(performance_dict['test'][i]) + "\n")
 

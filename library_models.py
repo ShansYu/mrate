@@ -130,9 +130,9 @@ class JODIE(nn.Module):
         return X_out
 
     def multi_head_attention(self, neighbor_embeddings, target_embeddings, t_tensor, w_tensor, hidden_layer, weight_layer):
-        neighbor_embeddings = neighbor_embeddings.cpu()
-        t_tensor = t_tensor.cpu()
-        w_tensor = w_tensor.cpu()
+        neighbor_embeddings = neighbor_embeddings.cuda()
+        t_tensor = t_tensor.cuda()
+        w_tensor = w_tensor.cuda()
         hidden_neighbor = hidden_layer(neighbor_embeddings)
         hidden_target = hidden_layer(target_embeddings)
         p = nn.Sigmoid()(self.attention_p(torch.cat([t_tensor, w_tensor], dim=2)))
@@ -149,9 +149,9 @@ class JODIE(nn.Module):
         return out
 
     # def multi_head_attention(self, neighbor_embeddings, target_embeddings, t_tensor, w_tensor, hidden_layer, weight_layer):
-    #     neighbor_embeddings = neighbor_embeddings.cpu()
-    #     t_tensor = t_tensor.cpu()
-    #     w_tensor = w_tensor.cpu()
+    #     neighbor_embeddings = neighbor_embeddings.cuda()
+    #     t_tensor = t_tensor.cuda()
+    #     w_tensor = w_tensor.cuda()
     #     hidden_neighbor = hidden_layer(neighbor_embeddings)
     #     hidden_target = hidden_layer(target_embeddings)
     #     p = nn.Sigmoid()(self.attention_p(torch.cat([t_tensor, w_tensor], dim=1)))
@@ -162,9 +162,9 @@ class JODIE(nn.Module):
     #     return out
 
     # def multi_head_attention(self, neighbor_embeddings, target_embeddings, t_tensor, w_tensor, hidden_layer, weight_layer):
-    #     neighbor_embeddings = neighbor_embeddings.cpu()
-    #     t_tensor = t_tensor.cpu()
-    #     w_tensor = w_tensor.cpu()
+    #     neighbor_embeddings = neighbor_embeddings.cuda()
+    #     t_tensor = t_tensor.cuda()
+    #     w_tensor = w_tensor.cuda()
         
     #     hidden_neighbor = hidden_layer(neighbor_embeddings)
     #     hidden_target = hidden_layer(target_embeddings)
@@ -323,16 +323,16 @@ def get_relation_neighbor_embeddings(target_nodes, neighbor_dict, node_embedding
             each_t_emb = zero_weight_embedding
             each_w_emb = zero_weight_embedding
         else:
-            # node_list = torch.LongTensor([r[0] for r in neighbor_dict[each_node]]).cpu()
-            # t_list = torch.LongTensor([r[1] for r in neighbor_dict[each_node]]).cpu()
-            # w_list = torch.LongTensor([r[2] for r in neighbor_dict[each_node]]).cpu()
+            # node_list = torch.LongTensor([r[0] for r in neighbor_dict[each_node]]).cuda()
+            # t_list = torch.LongTensor([r[1] for r in neighbor_dict[each_node]]).cuda()
+            # w_list = torch.LongTensor([r[2] for r in neighbor_dict[each_node]]).cuda()
             node_list = torch.FloatTensor([r[0] for r in neighbor_dict[each_node]])
             t_list = torch.FloatTensor([r[1] for r in neighbor_dict[each_node]])
             w_list = torch.FloatTensor([r[2] for r in neighbor_dict[each_node]])
-            long_node_list = torch.LongTensor(node_list.cpu().numpy())
-            # long_t_list = torch.LongTensor(t_list.cpu().numpy()).cpu()
-            # long_w_list = torch.LongTensor(w_list.cpu().numpy()).cpu()
-            each_neighbor_emb_cat = torch.cat([torch.reshape(node_embeddings.cpu()[long_node_list,:], (1, -1)), torch.reshape(zero_neighbor_embedding, (1,-1))], dim = 1)
+            long_node_list = torch.LongTensor(node_list.cuda().numpy())
+            # long_t_list = torch.LongTensor(t_list.cuda().numpy()).cuda()
+            # long_w_list = torch.LongTensor(w_list.cuda().numpy()).cuda()
+            each_neighbor_emb_cat = torch.cat([torch.reshape(node_embeddings.cuda()[long_node_list,:], (1, -1)), torch.reshape(zero_neighbor_embedding, (1,-1))], dim = 1)
             each_t_emb_cat = torch.cat([torch.reshape(t_list, (1, -1)), torch.reshape(zero_weight_embedding, (1,-1))], dim = 1)
             each_w_emb_cat = torch.cat([torch.reshape(w_list, (1, -1)), torch.reshape(zero_weight_embedding, (1,-1))], dim = 1)
             each_neighbor_emb = torch.reshape(each_neighbor_emb_cat[:,:args.num_neighbor*args.embedding_dim], (1, args.num_neighbor, args.embedding_dim))
@@ -362,7 +362,7 @@ def get_seq_neighbor_embeddings(target_nodes, his_neighbor_emb_input, node_embed
         each_node_neighbor_embedding = node_embeddings_input[mask_index, :] #n,dim
         each_w = cos_reshape[mask_index, :] #n,1
 
-        each_neighbor_emb_cat = torch.cat([torch.reshape(each_node_neighbor_embedding.cpu(), (1, -1)), torch.reshape(zero_neighbor_embedding, (1,-1))], dim = 1)
+        each_neighbor_emb_cat = torch.cat([torch.reshape(each_node_neighbor_embedding.cuda(), (1, -1)), torch.reshape(zero_neighbor_embedding, (1,-1))], dim = 1)
         each_t_emb_cat = torch.cat([torch.reshape(each_w, (1, -1)), torch.reshape(zero_weight_embedding, (1,-1))], dim = 1)
         each_w_emb_cat = torch.cat([torch.reshape(each_w, (1, -1)), torch.reshape(zero_weight_embedding, (1,-1))], dim = 1)
         each_neighbor_emb = torch.reshape(each_neighbor_emb_cat[:,:args.num_neighbor*args.embedding_dim], (1, args.num_neighbor, args.embedding_dim))
@@ -382,8 +382,8 @@ def get_seq_neighbor_embeddings(target_nodes, his_neighbor_emb_input, node_embed
 def calculate_state_prediction_loss(model, tbatch_interactionids, user_embeddings_time_series, y_true, loss_function):
     # PREDCIT THE LABEL FROM THE USER DYNAMIC EMBEDDINGS
     prob = model.predict_label(user_embeddings_time_series[tbatch_interactionids,:])
-    # y = Variable(torch.LongTensor(y_true).cpu()[tbatch_interactionids])
-    y = Variable(torch.FloatTensor(y_true).cpu()[tbatch_interactionids])
+    # y = Variable(torch.LongTensor(y_true).cuda()[tbatch_interactionids])
+    y = Variable(torch.FloatTensor(y_true).cuda()[tbatch_interactionids])
 
     loss = loss_function(prob, y)
 
@@ -394,8 +394,8 @@ def calculate_state_prediction_loss(model, tbatch_interactionids, user_embedding
 def save_model(model, optimizer, args, epoch, user_embeddings, item_embeddings, train_end_idx, user_embeddings_time_series=None, item_embeddings_time_series=None, his_user2item=defaultdict(list), his_item2user=defaultdict(list), com_user2user=defaultdict(list), com_item2item=defaultdict(list), path=PATH):
     print ("*** Saving embeddings and model ***")
     state = {
-            'user_embeddings': user_embeddings.data.cpu().numpy(),
-            'item_embeddings': item_embeddings.data.cpu().numpy(),
+            'user_embeddings': user_embeddings.data.cuda().numpy(),
+            'item_embeddings': item_embeddings.data.cuda().numpy(),
             'epoch': epoch,
             'state_dict': model.state_dict(),
             'optimizer' : optimizer.state_dict(),
@@ -403,14 +403,14 @@ def save_model(model, optimizer, args, epoch, user_embeddings, item_embeddings, 
             }
 
     if user_embeddings_time_series is not None:
-        state['user_embeddings_time_series'] = user_embeddings_time_series.data.cpu().numpy()
-        state['item_embeddings_time_series'] = item_embeddings_time_series.data.cpu().numpy()
+        state['user_embeddings_time_series'] = user_embeddings_time_series.data.cuda().numpy()
+        state['item_embeddings_time_series'] = item_embeddings_time_series.data.cuda().numpy()
 
     # add neighbor dict
-    state['his_user2item'] = his_user2item.data.cpu().numpy()
-    state['his_item2user'] = his_item2user.data.cpu().numpy()
-    state['com_user2user'] = com_user2user.data.cpu().numpy()
-    state['com_item2item'] = com_item2item.data.cpu().numpy()
+    state['his_user2item'] = his_user2item
+    state['his_item2user'] = his_item2user
+    state['com_user2user'] = com_user2user
+    state['com_item2item'] = com_item2item
 
     directory = os.path.join(path, 'saved_models/%s' % args.network)
     if not os.path.exists(directory):
@@ -425,29 +425,30 @@ def save_model(model, optimizer, args, epoch, user_embeddings, item_embeddings, 
 def load_model(model, optimizer, args, epoch):
     modelname = args.model
     filename = PATH + "saved_models/%s/checkpoint.%s.ep%d.tp%.1f.pth.tar" % (args.network, modelname, epoch, args.train_proportion)
+#     filename = PATH + "saved_models/lastfm/checkpoint.mrate.ep0.tp0.0.pth.tar"
     checkpoint = torch.load(filename)
     print ("Loading saved embeddings and model: %s" % filename)
     args.start_epoch = checkpoint['epoch']
-    user_embeddings = Variable(torch.from_numpy(checkpoint['user_embeddings']).cpu())
-    item_embeddings = Variable(torch.from_numpy(checkpoint['item_embeddings']).cpu())
+    user_embeddings = Variable(torch.from_numpy(checkpoint['user_embeddings']).cuda())
+    item_embeddings = Variable(torch.from_numpy(checkpoint['item_embeddings']).cuda())
     try:
         train_end_idx = checkpoint['train_end_idx']
     except KeyError:
         train_end_idx = None
 
     try:
-        user_embeddings_time_series = Variable(torch.from_numpy(checkpoint['user_embeddings_time_series']).cpu())
-        item_embeddings_time_series = Variable(torch.from_numpy(checkpoint['item_embeddings_time_series']).cpu())
+        user_embeddings_time_series = Variable(torch.from_numpy(checkpoint['user_embeddings_time_series']).cuda())
+        item_embeddings_time_series = Variable(torch.from_numpy(checkpoint['item_embeddings_time_series']).cuda())
     except:
         user_embeddings_time_series = None
         item_embeddings_time_series = None
 
     global his_user2item, his_item2user, com_user2user, com_item2item
     try:
-        his_user2item = torch.from_numpy(checkpoint['his_user2item']).cpu()
-        his_item2user = torch.from_numpy(checkpoint['his_item2user']).cpu()
-        com_user2user = torch.from_numpy(checkpoint['com_user2user']).cpu()
-        com_item2item = torch.from_numpy(checkpoint['com_item2item']).cpu()
+        his_user2item = checkpoint['his_user2item']
+        his_item2user = checkpoint['his_item2user']
+        com_user2user = checkpoint['com_user2user']
+        com_item2item = checkpoint['com_item2item']
     except:
         his_user2item = defaultdict(list)
         his_item2user = defaultdict(list)
@@ -457,7 +458,7 @@ def load_model(model, optimizer, args, epoch):
     model.load_state_dict(checkpoint['state_dict'])
     optimizer.load_state_dict(checkpoint['optimizer'])
 
-    return [model, optimizer, user_embeddings, item_embeddings, user_embeddings_time_series, item_embeddings_time_series, train_end_idx]
+    return [model, optimizer, user_embeddings, item_embeddings, user_embeddings_time_series, item_embeddings_time_series, train_end_idx, his_user2item, his_item2user, com_user2user, com_item2item]
 
 
 # SET USER AND ITEM EMBEDDINGS TO THE END OF THE TRAINING PERIOD
