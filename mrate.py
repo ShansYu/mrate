@@ -15,7 +15,7 @@ from library_models import *
 # INITIALIZE PARAMETERS
 parser = argparse.ArgumentParser()
 parser.add_argument('--network', required=True, help='Name of the network/dataset')
-parser.add_argument('--model', default="jodie", help='Model name to save output in file')
+parser.add_argument('--model', default="mrate", help='Model name to save output in file')
 parser.add_argument('--gpu', default=-1, type=int, help='ID of the gpu to run on. If set to -1 (default), the GPU with most free memory will be chosen.')
 parser.add_argument('--epochs', default=50, type=int, help='Number of epochs to train the model')
 parser.add_argument('--embedding_dim', default=128, type=int, help='Number of dimensions of the dynamic embedding')
@@ -205,15 +205,15 @@ with trange(args.epochs) as progress_bar1:
                             user_neighbor_embeddings = model.self_attention(hidden_user_his_neighbor, hidden_user_com_neighbor, hidden_user_seq_neighbor)
                             item_neighbor_embeddings = model.self_attention(hidden_item_his_neighbor, hidden_item_com_neighbor, hidden_item_seq_neighbor)
 
+                            user_projected_embedding = model.forward(user_embedding_input, item_embedding_input, user_neighbor_embeddings, item_neighbor_embeddings, timediffs=user_timediffs_tensor, select='project')
+                            user_item_embedding = torch.cat([user_projected_embedding, item_embedding_previous, user_neighbor_embeddings, item_embedding_static[tbatch_itemids_previous,:], user_embedding_static[tbatch_userids,:]], dim=1)
 
-                            # user_projected_embedding = model.forward(user_embedding_input, item_embedding_previous, timediffs=user_timediffs_tensor, features=feature_tensor, select='project')
-                            # user_item_embedding = torch.cat([user_projected_embedding, item_embedding_previous, item_embedding_static[tbatch_itemids_previous,:], user_embedding_static[tbatch_userids,:]], dim=1)
-
-                            # PREDICT NEXT ITEM EMBEDDING                            
-                            predicted_item_embedding = model.predict_item_embedding(user_embedding_input, user_neighbor_embeddings)
+                            # PREDICT NEXT ITEM EMBEDDING
+                            predicted_item_embedding = model.predict_item_embedding(user_item_embedding)
 
                             # CALCULATE PREDICTION LOSS
-                            loss += MSELoss(predicted_item_embedding, item_embedding_input.detach())
+                            loss += MSELoss(predicted_item_embedding, torch.cat([item_embedding_input, item_embedding_static[tbatch_itemids,:]], dim=1).detach())
+
 
                             # UPDATE DYNAMIC EMBEDDINGS AFTER INTERACTION
                             user_embedding_output = model.forward(user_embedding_input, item_embedding_input, user_neighbor_embeddings, item_neighbor_embeddings, timediffs=user_timediffs_tensor, select='user_update')

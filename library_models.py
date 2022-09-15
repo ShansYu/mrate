@@ -77,7 +77,8 @@ class JODIE(nn.Module):
         print ("Initializing linear layers")
         self.linear_layer1 = nn.Linear(self.embedding_dim, 50)
         self.linear_layer2 = nn.Linear(50, 2)
-        self.prediction_layer = nn.Linear(self.embedding_dim * 2, self.embedding_dim)
+        # self.prediction_layer = nn.Linear(self.embedding_dim * 2, self.embedding_dim)
+        self.prediction_layer = nn.Linear(self.user_static_embedding_size + self.item_static_embedding_size + self.embedding_dim * 3, self.item_static_embedding_size + self.embedding_dim)
         self.embedding_layer = NormalLinear(1, self.embedding_dim)
         # multi-head attention
         self.attention_hidden_1  = nn.Linear(self.embedding_dim, self.embedding_dim, bias=False)
@@ -111,12 +112,12 @@ class JODIE(nn.Module):
             user_embedding_output = self.user_rnn(input2, user_embeddings)
             return F.normalize(user_embedding_output)
 
-        # elif select == 'project':
-        #     user_projected_embedding = self.context_convert(user_embeddings, timediffs, features)
-        #     #user_projected_embedding = torch.cat([input3, item_embeddings], dim=1)
-        #     return user_projected_embedding
+        elif select == 'project':
+            user_projected_embedding = self.context_convert(user_embeddings, timediffs)
+            #user_projected_embedding = torch.cat([input3, item_embeddings], dim=1)
+            return user_projected_embedding
 
-    def context_convert(self, embeddings, timediffs, features):
+    def context_convert(self, embeddings, timediffs):
         new_embeddings = embeddings * (1 + self.embedding_layer(timediffs))
         return new_embeddings
 
@@ -125,8 +126,8 @@ class JODIE(nn.Module):
         X_out = self.linear_layer2(X_out)
         return X_out
 
-    def predict_item_embedding(self, user_embeddings, user_neighbor_embeddings):
-        X_out = nn.Softmax()(self.prediction_layer(torch.cat([user_embeddings, user_neighbor_embeddings], dim=1)))
+    def predict_item_embedding(self, user_embeddings):
+        X_out = self.prediction_layer(torch.cat([user_embeddings], dim=1))
         return X_out
 
     def multi_head_attention(self, neighbor_embeddings, target_embeddings, t_tensor, w_tensor, hidden_layer, weight_layer):
@@ -143,7 +144,7 @@ class JODIE(nn.Module):
         # print('target_embeddings.repeat shape: {}, neighbor_embeddings: {}'.format(tmp.shape, neighbor_embeddings.shape))
         # c = nn.LeakyReLU()(weight_layer(torch.cat([target_embeddings.repeat(1,self.num_neighbor,1), neighbor_embeddings], dim=2) * p))
         c = nn.LeakyReLU()(weight_layer(torch.cat([hidden_target.repeat(1,self.num_neighbor,1), neighbor_embeddings], dim=2) * p))
-        a = nn.Softmax()(torch.reshape(c, (-1, self.num_neighbor)))
+        a = nn.Softmax(dim=1)(torch.reshape(c, (-1, self.num_neighbor)))
         a_reshape = torch.reshape(a, (-1, self.num_neighbor, 1))
         out = torch.reshape(torch.sum(hidden_neighbor * a_reshape, dim=1), (-1, self.embedding_dim, 1)) # bacth_size, dim, 1
         return out
@@ -222,9 +223,9 @@ class JODIE(nn.Module):
         attention_scores = torch.matmul(q, k.transpose(-1, -2))
         # attention_scores = attention_scores/torch.sqrt(self.num_self_attention_head)
         attention_scores = attention_scores/np.sqrt(self.num_self_attention_head)
-        attention_prob = nn.Softmax()(attention_scores)
+        attention_prob = nn.Softmax(dim=1)(attention_scores)
         context_layer = torch.reshape(torch.matmul(attention_prob, v), [-1, 3*self.num_self_attention_head])
-        out = nn.Softmax()(self.fc(context_layer)) # batch_size, dim
+        out = nn.ReLU()(self.fc(context_layer)) # batch_size, dim
         return out
 
 
@@ -425,7 +426,7 @@ def save_model(model, optimizer, args, epoch, user_embeddings, item_embeddings, 
 def load_model(model, optimizer, args, epoch):
     modelname = args.model
     filename = PATH + "saved_models/%s/checkpoint.%s.ep%d.tp%.1f.pth.tar" % (args.network, modelname, epoch, args.train_proportion)
-#     filename = PATH + "saved_models/lastfm/checkpoint.mrate.ep0.tp0.0.pth.tar"
+#     filename = PATH + "saved_models/lastfm/checkpoint.mrate.ep0.tp0.1.pth.tar"
     checkpoint = torch.load(filename)
     print ("Loading saved embeddings and model: %s" % filename)
     args.start_epoch = checkpoint['epoch']

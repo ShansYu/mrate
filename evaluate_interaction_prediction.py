@@ -16,7 +16,7 @@ from library_models import *
 # INITIALIZE PARAMETERS
 parser = argparse.ArgumentParser()
 parser.add_argument('--network', required=True, help='Network name')
-parser.add_argument('--model', default='jodie', help="Model name")
+parser.add_argument('--model', default='mrate', help="Model name")
 parser.add_argument('--gpu', default=-1, type=int, help='ID of the gpu to run on. If set to -1 (default), the GPU with most free memory will be chosen.')
 parser.add_argument('--epoch', default=50, type=int, help='Epoch id to load')
 parser.add_argument('--embedding_dim', default=128, type=int, help='Number of dimensions')
@@ -190,19 +190,26 @@ with trange(train_end_idx, test_end_idx) as progress_bar:
 
 
         # PROJECT USER EMBEDDING
-        # user_projected_embedding = model.forward(user_embedding_input, item_embedding_previous, timediffs=user_timediffs_tensor, features=feature_tensor, select='project')
-        # user_item_embedding = torch.cat([user_projected_embedding, item_embedding_previous, item_embeddings_static[torch.cuda.LongTensor([itemid_previous])], user_embedding_static_input], dim=1)
+        user_projected_embedding = model.forward(user_embedding_input, item_embedding_input, user_neighbor_embeddings, item_neighbor_embeddings, timediffs=user_timediffs_tensor, select='project')
+        user_item_embedding = torch.cat([user_projected_embedding, item_embedding_previous, user_neighbor_embeddings, item_embeddings_static[torch.LongTensor([itemid_previous])], user_embedding_static_input], dim=1)
+
+        # PREDICT NEXT ITEM EMBEDDING
+        predicted_item_embedding = model.predict_item_embedding(user_item_embedding)
+
+        # CALCULATE PREDICTION LOSS
+        loss += MSELoss(predicted_item_embedding, torch.cat([item_embedding_input, item_embedding_static_input], dim=1).detach())
 
         # PREDICT ITEM EMBEDDING
         # predicted_item_embedding = model.predict_item_embedding(user_item_embedding)
-        predicted_item_embedding = model.predict_item_embedding(user_embedding_input, user_neighbor_embeddings)
+        # predicted_item_embedding = model.predict_item_embedding(user_embedding_input, user_neighbor_embeddings)
 
         # CALCULATE PREDICTION LOSS
         # loss += MSELoss(predicted_item_embedding, torch.cat([item_embedding_input, item_embedding_static_input], dim=1).detach())
-        loss += MSELoss(predicted_item_embedding, item_embedding_input.detach())
-        
-        # CALCULATE DISTANCE OF PREDICTED ITEM EMBEDDING TO ALL ITEMS 
-        euclidean_distances = nn.PairwiseDistance()(predicted_item_embedding.repeat(num_items, 1), item_embeddings).squeeze(-1)
+        # loss += MSELoss(predicted_item_embedding, item_embedding_input.detach())
+
+        # CALCULATE DISTANCE OF PREDICTED ITEM EMBEDDING TO ALL ITEMS
+        euclidean_distances = nn.PairwiseDistance()(predicted_item_embedding.repeat(num_items, 1), torch.cat([item_embeddings, item_embeddings_static], dim=1)).squeeze(-1)
+        # euclidean_distances = nn.PairwiseDistance()(predicted_item_embedding.repeat(num_items, 1), item_embeddings).squeeze(-1)
         
         # CALCULATE RANK OF THE TRUE ITEM AMONG ALL ITEMS
         true_item_distance = euclidean_distances[itemid]
